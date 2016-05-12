@@ -1,42 +1,49 @@
+#[macro_use]
+extern crate nom;
+
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-type BinaryString = Vec<u8>;
+use nom::{multispace, alphanumeric};
+
+pub type BinaryString = Vec<u8>;
 
 #[derive(PartialEq, Eq, Debug)]
-enum Command {
+pub enum Command {
     Set { key: BinaryString, value: BinaryString },
     Get { key: BinaryString },
 }
 
 #[derive(Default, Debug)]
-struct State {
+pub struct State {
     memory: HashMap<BinaryString, BinaryString>,
 }
 
-fn apply(state: &mut State, command: Command) -> Return {
-    match command {
-        Command::Set { key, value } => {
-            let _ = state.memory.insert(key, value);
-            Return::Ok
-        }
-        Command::Get { key } => {
-            match state.memory.get(&key) {
-                Some(value) => Return::SimpleString(value),
-                None        => Return::Nil
+impl State {
+    pub fn apply(self: &mut State, command: Command) -> Return {
+        match command {
+            Command::Set { key, value } => {
+                let _ = self.memory.insert(key, value);
+                Return::Ok
+            }
+            Command::Get { key } => {
+                match self.memory.get(&key) {
+                    Some(value) => Return::SimpleString(value),
+                    None        => Return::Nil
+                }
             }
         }
     }
 }
 
 #[derive(Eq, PartialEq, Debug)]
-enum Error<'a> {
+pub enum Error<'a> {
     UnknownCommand(&'a str),
     NotAnInteger,
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum Return<'a> {
+pub enum Return<'a> {
     Ok,
     Nil,
     SimpleString(&'a BinaryString),
@@ -44,9 +51,9 @@ enum Return<'a> {
     BulkString(&'a BinaryString),
 }
 
-type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
+pub type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
 
-fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
+pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
     match *result {
         Ok(ref ret) => {
             match *ret {
@@ -117,5 +124,55 @@ mod resp {
 
         assert!(encode(&Ok(ret), &mut output).is_ok());
         assert_eq!(to, String::from_utf8(output).unwrap());
+    }
+}
+
+named!(pub parser<&[u8], Command>,
+    alt!(
+        chain!(
+            tag!("GET") ~
+            multispace ~
+            key: alphanumeric ~
+            multispace?,
+            || { Command::Get { key: Vec::from(key) } }
+        )
+     |  chain!(
+            tag!("SET") ~
+            multispace ~
+            key: alphanumeric ~
+            multispace ~
+            value: alphanumeric ~
+            multispace?,
+            || { Command::Set { key: Vec::from(key), value: Vec::from(value) } }
+        )
+    )
+);
+
+#[cfg(test)]
+mod parser {
+    use super::{parser, Command};
+    use nom::IResult;
+
+    #[test]
+    fn _get() {
+        let cmd = Command::Get { key: Vec::from("foo") };
+
+        assert_eq!(
+            IResult::Done(&[] as &[u8], cmd),
+            parser("GET foo\n".as_bytes())
+        );
+    }
+
+    #[test]
+    fn _set() {
+        let cmd = Command::Set {
+            key: Vec::from("foo"),
+            value: Vec::from("bar"),
+        };
+
+        assert_eq!(
+            IResult::Done(&[] as &[u8], cmd),
+            parser("SET foo bar\n".as_bytes())
+        );
     }
 }
