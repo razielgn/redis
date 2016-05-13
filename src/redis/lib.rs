@@ -6,28 +6,30 @@ use std::io::{self, Write};
 
 use nom::{multispace, alphanumeric};
 
-pub type BinaryString = Vec<u8>;
-
 #[derive(PartialEq, Eq, Debug)]
-pub enum Command {
-    Set { key: BinaryString, value: BinaryString },
-    Get { key: BinaryString },
+pub enum Command<'a> {
+    Set { key: &'a [u8], value: &'a [u8] },
+    Get { key: &'a [u8] },
 }
 
 #[derive(Default, Debug)]
 pub struct State {
-    memory: HashMap<BinaryString, BinaryString>,
+    memory: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl State {
     pub fn apply(self: &mut State, command: Command) -> Return {
         match command {
             Command::Set { key, value } => {
-                let _ = self.memory.insert(key, value);
+                let _ = self.memory.insert(
+                    Vec::from(key),
+                    Vec::from(value)
+                );
+
                 Return::Ok
             }
             Command::Get { key } => {
-                match self.memory.get(&key) {
+                match self.memory.get(key) {
                     Some(value) => Return::SimpleString(value),
                     None        => Return::Nil
                 }
@@ -46,9 +48,9 @@ pub enum Error<'a> {
 pub enum Return<'a> {
     Ok,
     Nil,
-    SimpleString(&'a BinaryString),
+    SimpleString(&'a [u8]),
     Integer(i64),
-    BulkString(&'a BinaryString),
+    BulkString(&'a [u8]),
 }
 
 pub type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
@@ -97,20 +99,14 @@ mod resp {
 
     #[test]
     fn simple_string() {
-        let a = Vec::from("");
-        encodes_to(Return::SimpleString(&a), "+\r\n");
-
-        let b = Vec::from("asd");
-        encodes_to(Return::SimpleString(&b), "+asd\r\n");
+        encodes_to(Return::SimpleString(b""), "+\r\n");
+        encodes_to(Return::SimpleString(b"asd"), "+asd\r\n");
     }
 
     #[test]
     fn bulk_string() {
-        let a = Vec::from("");
-        encodes_to(Return::BulkString(&a), "$0\r\n\r\n");
-
-        let b = Vec::from("asd");
-        encodes_to(Return::BulkString(&b), "$3\r\nasd\r\n");
+        encodes_to(Return::BulkString(b""), "$0\r\n\r\n");
+        encodes_to(Return::BulkString(b"asd"), "$3\r\nasd\r\n");
     }
 
     #[test]
@@ -134,7 +130,7 @@ named!(pub parser<&[u8], Command>,
             multispace ~
             key: alphanumeric ~
             multispace?,
-            || { Command::Get { key: Vec::from(key) } }
+            || { Command::Get { key: key } }
         )
      |  chain!(
             tag!("SET") ~
@@ -143,7 +139,7 @@ named!(pub parser<&[u8], Command>,
             multispace ~
             value: alphanumeric ~
             multispace?,
-            || { Command::Set { key: Vec::from(key), value: Vec::from(value) } }
+            || { Command::Set { key: key, value: value } }
         )
     )
 );
@@ -155,24 +151,21 @@ mod parser {
 
     #[test]
     fn _get() {
-        let cmd = Command::Get { key: Vec::from("foo") };
+        let cmd = Command::Get { key: b"foo" };
 
         assert_eq!(
             IResult::Done(&[] as &[u8], cmd),
-            parser("GET foo\n".as_bytes())
+            parser(b"GET foo\n")
         );
     }
 
     #[test]
     fn _set() {
-        let cmd = Command::Set {
-            key: Vec::from("foo"),
-            value: Vec::from("bar"),
-        };
+        let cmd = Command::Set { key: b"foo", value: b"bar" };
 
         assert_eq!(
             IResult::Done(&[] as &[u8], cmd),
-            parser("SET foo bar\n".as_bytes())
+            parser(b"SET foo bar\n")
         );
     }
 }
