@@ -6,7 +6,7 @@ use std::io::{self, Write};
 
 use nom::{multispace, alphanumeric};
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Command<'a> {
     Set { key: &'a [u8], value: &'a [u8] },
     Get { key: &'a [u8] },
@@ -123,25 +123,40 @@ mod resp {
     }
 }
 
-named!(pub parser<&[u8], Command>,
-    alt!(
-        chain!(
-            tag!("GET") ~
-            multispace ~
-            key: alphanumeric ~
-            multispace?,
-            || { Command::Get { key: key } }
-        )
-     |  chain!(
-            tag!("SET") ~
-            multispace ~
-            key: alphanumeric ~
-            multispace ~
-            value: alphanumeric ~
-            multispace?,
-            || { Command::Set { key: key, value: value } }
-        )
+named!(string,
+   alt!(
+       delimited!(char!('"'), alphanumeric, char!('"'))
+     | alphanumeric
+   )
+);
+
+named!(get<&[u8], Command>,
+    chain!(
+        tag!("GET") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::Get { key: key } }
     )
+);
+
+named!(set<&[u8], Command>,
+    chain!(
+        tag!("SET") ~
+        multispace ~
+        key: string ~
+        multispace ~
+        value: string ~
+        multispace?,
+        || { Command::Set { key: key, value: value } }
+    )
+);
+
+named!(pub parser<&[u8], Command>,
+   alt!(
+       get
+     | set
+   )
 );
 
 #[cfg(test)]
@@ -153,19 +168,24 @@ mod parser {
     fn _get() {
         let cmd = Command::Get { key: b"foo" };
 
-        assert_eq!(
-            IResult::Done(&[] as &[u8], cmd),
-            parser(b"GET foo\n")
-        );
+        parses_to("GET foo\n", &cmd);
+        parses_to("GET \"foo\"\n", &cmd);
     }
 
     #[test]
     fn _set() {
         let cmd = Command::Set { key: b"foo", value: b"bar" };
 
+        parses_to("SET foo bar\n", &cmd);
+        parses_to("SET \"foo\" bar\n", &cmd);
+        parses_to("SET foo \"bar\"\n", &cmd);
+        parses_to("SET \"foo\" \"bar\"\n", &cmd);
+    }
+
+    fn parses_to(i: &str, cmd: &Command) {
         assert_eq!(
-            IResult::Done(&[] as &[u8], cmd),
-            parser(b"SET foo bar\n")
+            IResult::Done(&b""[..], cmd.clone()),
+            parser(i.as_bytes())
         );
     }
 }
