@@ -30,7 +30,7 @@ impl State {
             }
             Command::Get { key } => {
                 match self.memory.get(key) {
-                    Some(value) => Return::SimpleString(value),
+                    Some(value) => Return::BulkString(value),
                     None        => Return::Nil
                 }
             }
