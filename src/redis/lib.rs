@@ -58,6 +58,31 @@ pub enum Return<'a> {
 
 pub type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
 
+#[cfg(test)]
+mod commands {
+    use super::{State, Command, Return};
+
+    #[test]
+    fn get_and_set() {
+        let mut state = State::default();
+
+        assert_eq!(
+            Return::Nil,
+            state.apply(Command::Get { key: b"foo" })
+        );
+
+        assert_eq!(
+            Return::Ok,
+            state.apply(Command::Set { key: b"foo", value: b"bar" })
+        );
+
+        assert_eq!(
+            Return::BulkString(b"bar"),
+            state.apply(Command::Get { key: b"foo" })
+        );
+    }
+}
+
 pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
     match *result {
         Ok(ref ret) => {
