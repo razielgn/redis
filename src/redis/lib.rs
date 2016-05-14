@@ -131,8 +131,7 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                     try!(write!(w, ":{}", i)),
             }
         }
-        Err(ref err) => {
-        }
+        Err(_) => {}
     }
 
     try!(write!(w, "\r\n"));
