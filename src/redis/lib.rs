@@ -12,6 +12,7 @@ pub enum Command<'a> {
     Set { key: &'a [u8], value: &'a [u8] },
     Get { key: &'a [u8] },
     Exists { key: &'a [u8] },
+    Del { keys: Vec<&'a [u8]> },
 }
 
 #[derive(Default, Debug)]
@@ -43,6 +44,13 @@ impl State {
                 } else {
                     Ok(Return::Integer(0))
                 },
+            Command::Del { keys } => {
+                let sum = keys.into_iter().fold(0, |acc, key| {
+                    acc + self.memory.remove(key).map_or(0, |_| 1)
+                });
+
+                Ok(Return::Integer(sum))
+            }
         }
     }
 }
@@ -105,6 +113,40 @@ mod commands {
         assert_eq!(
             Ok(Return::Integer(1)),
             state.apply(Command::Exists { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn del() {
+        let mut state = State::default();
+
+        assert_eq!(
+            Ok(Return::Integer(0)),
+            state.apply(Command::Del { keys: vec!(b"foo", b"bar", b"baz") })
+        );
+
+        let _ = state.apply(Command::Set { key: b"foo", value: b"foo" });
+        let _ = state.apply(Command::Set { key: b"bar", value: b"bar" });
+        let _ = state.apply(Command::Set { key: b"baz", value: b"baz" });
+
+        assert_eq!(
+            Ok(Return::Integer(2)),
+            state.apply(Command::Del { keys: vec!(b"foo", b"baz") })
+        );
+
+        assert_eq!(
+            Ok(Return::Integer(0)),
+            state.apply(Command::Exists { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(Return::Integer(1)),
+            state.apply(Command::Exists { key: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(Return::Integer(0)),
+            state.apply(Command::Exists { key: b"baz" })
         );
     }
 }
@@ -210,6 +252,16 @@ named!(exists<Command>,
     )
 );
 
+named!(del<Command>,
+    chain!(
+        tag!("DEL") ~
+        multispace ~
+        keys: separated_nonempty_list!(multispace, string) ~
+        multispace?,
+        || { Command::Del { keys: keys } }
+    )
+);
+
 named!(set<Command>,
     chain!(
         tag!("SET") ~
@@ -223,7 +275,7 @@ named!(set<Command>,
 );
 
 named!(pub parser<Command>,
-   alt!(get | set | exists)
+   alt!(get | set | exists | del)
 );
 
 #[cfg(test)]
@@ -282,6 +334,12 @@ mod parser {
     fn exists() {
         let bytes = Command::Exists { key: b"foo" };
         parses_to("EXISTS foo", &bytes);
+    }
+
+    #[test]
+    fn del() {
+        let cmd = Command::Del { keys: vec!(b"foo", b"bar") };
+        parses_to("DEL  foo   bar ", &cmd);
     }
 
     fn parses_to(i: &str, cmd: &Command) {
