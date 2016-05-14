@@ -2,6 +2,7 @@
 extern crate nom;
 
 use std::collections::HashMap;
+use std::default::Default;
 use std::io::{self, Write};
 
 use nom::{multispace};
@@ -18,6 +19,8 @@ pub struct State {
 }
 
 impl State {
+    pub fn new() -> State { State::default() }
+
     pub fn apply(self: &mut State, command: Command) -> Return {
         match command {
             Command::Set { key, value } => {

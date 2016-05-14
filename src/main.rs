@@ -2,7 +2,6 @@ extern crate redis;
 extern crate nom;
 
 use std::io;
-use std::default::Default;
 
 use redis::{State, parser, encode};
 
@@ -11,7 +10,7 @@ use nom::IResult;
 fn main() {
     let input = io::stdin();
 
-    let mut state = State::default();
+    let mut state = State::new();
 
     loop {
         let mut output = io::stdout();
