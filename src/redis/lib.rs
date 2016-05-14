@@ -11,7 +11,7 @@ use nom::{multispace};
 pub enum Command<'a> {
     Set { key: &'a [u8], value: &'a [u8] },
     Get { key: &'a [u8] },
-    Exists { key: &'a [u8] },
+    Exists { keys: Vec<&'a [u8]> },
     Del { keys: Vec<&'a [u8]> },
 }
 
@@ -38,18 +38,19 @@ impl State {
                     Some(value) => Ok(Return::BulkString(value)),
                     None        => Ok(Return::Nil)
                 },
-            Command::Exists { key } =>
-                if self.memory.contains_key(key) {
-                    Ok(Return::Integer(1))
-                } else {
-                    Ok(Return::Integer(0))
-                },
-            Command::Del { keys } => {
-                let sum = keys.into_iter().fold(0, |acc, key| {
-                    acc + self.memory.remove(key).map_or(0, |_| 1)
-                });
+            Command::Exists { keys } => {
+                let sum = keys.into_iter()
+                    .filter(|key| self.memory.contains_key(*key))
+                    .count();
 
-                Ok(Return::Integer(sum))
+                Ok(Return::Size(sum))
+            }
+            Command::Del { keys } => {
+                let sum = keys.into_iter()
+                    .filter(|key| self.memory.remove(*key).map_or(false, |_| true))
+                    .count();
+
+                Ok(Return::Size(sum))
             }
         }
     }
@@ -67,6 +68,7 @@ pub enum Return<'a> {
     Nil,
     SimpleString(&'a [u8]),
     Integer(i64),
+    Size(usize),
     BulkString(&'a [u8]),
 }
 
@@ -101,18 +103,16 @@ mod commands {
         let mut state = State::default();
 
         assert_eq!(
-            Ok(Return::Integer(0)),
-            state.apply(Command::Exists { key: b"foo" })
+            Ok(Return::Size(0)),
+            state.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
         );
 
-        assert_eq!(
-            Ok(Return::Ok),
-            state.apply(Command::Set { key: b"foo", value: b"bar" })
-        );
+        let _ = state.apply(Command::Set { key: b"foo", value: b"foo" });
+        let _ = state.apply(Command::Set { key: b"baz", value: b"baz" });
 
         assert_eq!(
-            Ok(Return::Integer(1)),
-            state.apply(Command::Exists { key: b"foo" })
+            Ok(Return::Size(2)),
+            state.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
         );
     }
 
@@ -121,7 +121,7 @@ mod commands {
         let mut state = State::default();
 
         assert_eq!(
-            Ok(Return::Integer(0)),
+            Ok(Return::Size(0)),
             state.apply(Command::Del { keys: vec!(b"foo", b"bar", b"baz") })
         );
 
@@ -130,23 +130,13 @@ mod commands {
         let _ = state.apply(Command::Set { key: b"baz", value: b"baz" });
 
         assert_eq!(
-            Ok(Return::Integer(2)),
+            Ok(Return::Size(2)),
             state.apply(Command::Del { keys: vec!(b"foo", b"baz") })
         );
 
         assert_eq!(
-            Ok(Return::Integer(0)),
-            state.apply(Command::Exists { key: b"foo" })
-        );
-
-        assert_eq!(
-            Ok(Return::Integer(1)),
-            state.apply(Command::Exists { key: b"bar" })
-        );
-
-        assert_eq!(
-            Ok(Return::Integer(0)),
-            state.apply(Command::Exists { key: b"baz" })
+            Ok(Return::Size(1)),
+            state.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
         );
     }
 }
@@ -169,6 +159,8 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                 }
                 Return::Integer(i) =>
                     try!(write!(w, ":{}", i)),
+                Return::Size(u) =>
+                    try!(write!(w, ":{}", u)),
             }
         }
         Err(_) => {}
@@ -210,6 +202,11 @@ mod resp {
         encodes_to(Return::Integer(-1238439), ":-1238439\r\n");
     }
 
+    #[test]
+    fn size() {
+        encodes_to(Return::Size(1238439), ":1238439\r\n");
+    }
+
     fn encodes_to(ret: Return, to: &str) {
         let mut output = Vec::new();
 
@@ -246,9 +243,9 @@ named!(exists<Command>,
     chain!(
         tag!("EXISTS") ~
         multispace ~
-        key: string ~
+        keys: separated_nonempty_list!(multispace, string) ~
         multispace?,
-        || { Command::Exists { key: key } }
+        || { Command::Exists { keys: keys } }
     )
 );
 
@@ -332,8 +329,8 @@ mod parser {
 
     #[test]
     fn exists() {
-        let bytes = Command::Exists { key: b"foo" };
-        parses_to("EXISTS foo", &bytes);
+        let cmd = Command::Exists { keys: vec!(b"foo", b"bar") };
+        parses_to("EXISTS  foo   bar ", &cmd);
     }
 
     #[test]
