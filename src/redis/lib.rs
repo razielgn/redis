@@ -32,19 +32,17 @@ impl State {
 
                 Ok(Return::Ok)
             }
-            Command::Get { key } => {
+            Command::Get { key } =>
                 match self.memory.get(key) {
                     Some(value) => Ok(Return::BulkString(value)),
                     None        => Ok(Return::Nil)
-                }
-            }
-            Command::Exists { key } => {
+                },
+            Command::Exists { key } =>
                 if self.memory.contains_key(key) {
                     Ok(Return::Integer(1))
                 } else {
                     Ok(Return::Integer(0))
-                }
-            }
+                },
         }
     }
 }
