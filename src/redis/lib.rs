@@ -13,6 +13,7 @@ pub enum Command<'a> {
     Get { key: &'a [u8] },
     Exists { keys: Vec<&'a [u8]> },
     Del { keys: Vec<&'a [u8]> },
+    Rename { key: &'a [u8], new_key: &'a [u8] },
 }
 
 #[derive(Default, Debug)]
@@ -23,7 +24,7 @@ pub struct State {
 impl State {
     pub fn new() -> State { State::default() }
 
-    pub fn apply(self: &mut State, command: Command) -> CommandResult {
+    pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
             Command::Set { key, value } => {
                 let _ = self.memory.insert(
@@ -51,14 +52,24 @@ impl State {
                     .count();
 
                 Ok(Return::Size(sum))
-            }
+            },
+            Command::Rename { key, new_key } =>
+                match self.memory.remove(key) {
+                    Some(value) => {
+                        self.memory.insert(Vec::from(new_key), value);
+                        Ok(Return::Ok)
+                    },
+                    None =>
+                        Err(Error::NoSuchKey)
+                }
         }
     }
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum Error<'a> {
-    UnknownCommand(&'a str),
+    UnknownCommand(&'a [u8]),
+    NoSuchKey,
     NotAnInteger,
 }
 
@@ -76,7 +87,7 @@ pub type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
 
 #[cfg(test)]
 mod commands {
-    use super::{State, Command, Return};
+    use super::{State, Command, Return, Error};
 
     #[test]
     fn get_and_set() {
@@ -139,6 +150,33 @@ mod commands {
             state.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
         );
     }
+
+    #[test]
+    fn rename() {
+        let mut state = State::default();
+
+        assert_eq!(
+            Err(Error::NoSuchKey),
+            state.apply(Command::Rename { key: b"foo", new_key: b"bar" })
+        );
+
+        let _ = state.apply(Command::Set { key: b"foo", value: b"foo" });
+
+        assert_eq!(
+            Ok(Return::Ok),
+            state.apply(Command::Rename { key: b"foo", new_key: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(Return::Nil),
+            state.apply(Command::Get { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(Return::BulkString(b"foo")),
+            state.apply(Command::Get { key: b"bar" })
+        );
+    }
 }
 
 pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
@@ -163,7 +201,21 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                     try!(write!(w, ":{}", u)),
             }
         }
-        Err(_) => {}
+        Err(ref err) => {
+            try!(write!(w, "-ERR "));
+
+            match *err {
+                Error::NoSuchKey =>
+                    try!(write!(w, "no such key")),
+                Error::UnknownCommand(cmd) => {
+                    try!(write!(w, "unknown command '"));
+                    try!(w.write_all(cmd));
+                    try!(write!(w, "'"));
+                }
+                Error::NotAnInteger =>
+                    try!(write!(w, "value is not an integer or out of range")),
+            }
+        }
     }
 
     try!(write!(w, "\r\n"));
@@ -172,45 +224,66 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
 
 #[cfg(test)]
 mod resp {
-    use super::{Return, encode};
+    use super::{Return, encode, Error, CommandResult};
 
     #[test]
     fn ok() {
-        encodes_to(Return::Ok, "+OK\r\n");
+        encodes_to(Ok(Return::Ok), "+OK\r\n");
     }
 
     #[test]
     fn nil() {
-        encodes_to(Return::Nil, "$-1\r\n");
+        encodes_to(Ok(Return::Nil), "$-1\r\n");
     }
 
     #[test]
     fn simple_string() {
-        encodes_to(Return::SimpleString(b""), "+\r\n");
-        encodes_to(Return::SimpleString(b"asd"), "+asd\r\n");
+        encodes_to(Ok(Return::SimpleString(b"")), "+\r\n");
+        encodes_to(Ok(Return::SimpleString(b"asd")), "+asd\r\n");
     }
 
     #[test]
     fn bulk_string() {
-        encodes_to(Return::BulkString(b""), "$0\r\n\r\n");
-        encodes_to(Return::BulkString(b"asd"), "$3\r\nasd\r\n");
+        encodes_to(Ok(Return::BulkString(b"")), "$0\r\n\r\n");
+        encodes_to(Ok(Return::BulkString(b"asd")), "$3\r\nasd\r\n");
     }
 
     #[test]
     fn integer() {
-        encodes_to(Return::Integer(1238439), ":1238439\r\n");
-        encodes_to(Return::Integer(-1238439), ":-1238439\r\n");
+        encodes_to(Ok(Return::Integer(1238439)), ":1238439\r\n");
+        encodes_to(Ok(Return::Integer(-1238439)), ":-1238439\r\n");
     }
 
     #[test]
     fn size() {
-        encodes_to(Return::Size(1238439), ":1238439\r\n");
+        encodes_to(Ok(Return::Size(1238439)), ":1238439\r\n");
     }
 
-    fn encodes_to(ret: Return, to: &str) {
+    #[test]
+    fn no_such_key() {
+        encodes_to(Err(Error::NoSuchKey), "-ERR no such key\r\n");
+    }
+
+    #[test]
+    fn not_an_integer() {
+        encodes_to(
+            Err(Error::NotAnInteger),
+            "-ERR value is not an integer or out of range\r\n"
+        );
+    }
+
+    #[test]
+    fn unknown_command() {
+        encodes_to(
+            Err(Error::UnknownCommand(b"asd")),
+            "-ERR unknown command 'asd'\r\n"
+        );
+    }
+
+    fn encodes_to(ret: CommandResult, to: &str) {
         let mut output = Vec::new();
 
-        assert!(encode(&Ok(ret), &mut output).is_ok());
+        assert!(encode(&ret, &mut output).is_ok());
         assert_eq!(to, String::from_utf8(output).unwrap());
     }
 }
@@ -236,6 +309,18 @@ named!(get<Command>,
         key: string ~
         multispace?,
         || { Command::Get { key: key } }
+    )
+);
+
+named!(rename<Command>,
+    chain!(
+        tag!("RENAME") ~
+        multispace ~
+        key: string ~
+        multispace? ~
+        new_key: string ~
+        multispace?,
+        || { Command::Rename { key: key, new_key: new_key } }
     )
 );
 
@@ -272,7 +357,7 @@ named!(set<Command>,
 );
 
 named!(pub parser<Command>,
-   alt!(get | set | exists | del)
+   alt!(get | set | exists | del | rename)
 );
 
 #[cfg(test)]
@@ -337,6 +422,12 @@ mod parser {
     fn del() {
         let cmd = Command::Del { keys: vec!(b"foo", b"bar") };
         parses_to("DEL  foo   bar ", &cmd);
+    }
+
+    #[test]
+    fn rename() {
+        let cmd = Command::Rename { key: b"foo", new_key: b"bar" };
+        parses_to("RENAME foo bar", &cmd);
     }
 
     fn parses_to(i: &str, cmd: &Command) {
