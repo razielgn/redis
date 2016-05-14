@@ -11,6 +11,7 @@ use nom::{multispace};
 pub enum Command<'a> {
     Set { key: &'a [u8], value: &'a [u8] },
     Get { key: &'a [u8] },
+    Exists { key: &'a [u8] },
 }
 
 #[derive(Default, Debug)]
@@ -35,6 +36,13 @@ impl State {
                 match self.memory.get(key) {
                     Some(value) => Return::BulkString(value),
                     None        => Return::Nil
+                }
+            }
+            Command::Exists { key } => {
+                if self.memory.contains_key(key) {
+                    Return::Integer(1)
+                } else {
+                    Return::Integer(0)
                 }
             }
         }
@@ -79,6 +87,26 @@ mod commands {
         assert_eq!(
             Return::BulkString(b"bar"),
             state.apply(Command::Get { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn exists() {
+        let mut state = State::default();
+
+        assert_eq!(
+            Return::Integer(0),
+            state.apply(Command::Exists { key: b"foo" })
+        );
+
+        assert_eq!(
+            Return::Ok,
+            state.apply(Command::Set { key: b"foo", value: b"bar" })
+        );
+
+        assert_eq!(
+            Return::Integer(1),
+            state.apply(Command::Exists { key: b"foo" })
         );
     }
 }
@@ -175,6 +203,16 @@ named!(get<Command>,
     )
 );
 
+named!(exists<Command>,
+    chain!(
+        tag!("EXISTS") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::Exists { key: key } }
+    )
+);
+
 named!(set<Command>,
     chain!(
         tag!("SET") ~
@@ -188,10 +226,7 @@ named!(set<Command>,
 );
 
 named!(pub parser<Command>,
-   alt!(
-       get
-     | set
-   )
+   alt!(get | set | exists)
 );
 
 #[cfg(test)]
@@ -244,6 +279,12 @@ mod parser {
         let bytes = Command::Set { key: b"\x01\x02\x03", value: b"\x01\x02\x03" };
         parses_to("SET \"\x01\x02\x03\" \"\x01\x02\x03\" \n", &bytes);
         parses_to("SET \x01\x02\x03  \x01\x02\x03 \n", &bytes);
+    }
+
+    #[test]
+    fn exists() {
+        let bytes = Command::Exists { key: b"foo" };
+        parses_to("EXISTS foo", &bytes);
     }
 
     fn parses_to(i: &str, cmd: &Command) {
