@@ -22,7 +22,7 @@ fn main() {
                 match parser(line.as_bytes()) {
                     IResult::Done(_, cmd) => {
                         let res = state.apply(cmd);
-                        encode(&Ok(res), &mut output).unwrap();
+                        encode(&res, &mut output).unwrap();
                     }
                     IResult::Error(err) =>
                         println!("Error: {:?}", err),

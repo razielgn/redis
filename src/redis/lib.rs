@@ -22,7 +22,7 @@ pub struct State {
 impl State {
     pub fn new() -> State { State::default() }
 
-    pub fn apply(self: &mut State, command: Command) -> Return {
+    pub fn apply(self: &mut State, command: Command) -> CommandResult {
         match command {
             Command::Set { key, value } => {
                 let _ = self.memory.insert(
@@ -30,19 +30,19 @@ impl State {
                     Vec::from(value)
                 );
 
-                Return::Ok
+                Ok(Return::Ok)
             }
             Command::Get { key } => {
                 match self.memory.get(key) {
-                    Some(value) => Return::BulkString(value),
-                    None        => Return::Nil
+                    Some(value) => Ok(Return::BulkString(value)),
+                    None        => Ok(Return::Nil)
                 }
             }
             Command::Exists { key } => {
                 if self.memory.contains_key(key) {
-                    Return::Integer(1)
+                    Ok(Return::Integer(1))
                 } else {
-                    Return::Integer(0)
+                    Ok(Return::Integer(0))
                 }
             }
         }
@@ -75,17 +75,17 @@ mod commands {
         let mut state = State::default();
 
         assert_eq!(
-            Return::Nil,
+            Ok(Return::Nil),
             state.apply(Command::Get { key: b"foo" })
         );
 
         assert_eq!(
-            Return::Ok,
+            Ok(Return::Ok),
             state.apply(Command::Set { key: b"foo", value: b"bar" })
         );
 
         assert_eq!(
-            Return::BulkString(b"bar"),
+            Ok(Return::BulkString(b"bar")),
             state.apply(Command::Get { key: b"foo" })
         );
     }
@@ -95,17 +95,17 @@ mod commands {
         let mut state = State::default();
 
         assert_eq!(
-            Return::Integer(0),
+            Ok(Return::Integer(0)),
             state.apply(Command::Exists { key: b"foo" })
         );
 
         assert_eq!(
-            Return::Ok,
+            Ok(Return::Ok),
             state.apply(Command::Set { key: b"foo", value: b"bar" })
         );
 
         assert_eq!(
-            Return::Integer(1),
+            Ok(Return::Integer(1)),
             state.apply(Command::Exists { key: b"foo" })
         );
     }
