@@ -4,7 +4,7 @@ extern crate nom;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
-use nom::{multispace, alphanumeric};
+use nom::{multispace};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Command<'a> {
@@ -123,14 +123,21 @@ mod resp {
     }
 }
 
+fn not_multispace(c: u8) -> bool {
+    match c {
+        b' ' | b'\t' | b'\r' | b'\n' => false,
+        _ => true,
+    }
+}
+
 named!(string,
    alt!(
-       delimited!(char!('"'), alphanumeric, char!('"'))
-     | alphanumeric
+       delimited!(char!('"'), take_until!("\""), char!('"'))
+     | take_while!(not_multispace)
    )
 );
 
-named!(get<&[u8], Command>,
+named!(get<Command>,
     chain!(
         tag!("GET") ~
         multispace ~
@@ -140,7 +147,7 @@ named!(get<&[u8], Command>,
     )
 );
 
-named!(set<&[u8], Command>,
+named!(set<Command>,
     chain!(
         tag!("SET") ~
         multispace ~
@@ -152,7 +159,7 @@ named!(set<&[u8], Command>,
     )
 );
 
-named!(pub parser<&[u8], Command>,
+named!(pub parser<Command>,
    alt!(
        get
      | set
@@ -165,21 +172,50 @@ mod parser {
     use nom::IResult;
 
     #[test]
-    fn _get() {
-        let cmd = Command::Get { key: b"foo" };
+    fn get_empty() {
+        let empty = Command::Get { key: b"" };
 
-        parses_to("GET foo\n", &cmd);
-        parses_to("GET \"foo\"\n", &cmd);
+        parses_to("GET \"\"\n", &empty);
     }
 
     #[test]
-    fn _set() {
-        let cmd = Command::Set { key: b"foo", value: b"bar" };
+    fn get_ascii() {
+        let foo = Command::Get { key: b"foo" };
 
-        parses_to("SET foo bar\n", &cmd);
-        parses_to("SET \"foo\" bar\n", &cmd);
-        parses_to("SET foo \"bar\"\n", &cmd);
-        parses_to("SET \"foo\" \"bar\"\n", &cmd);
+        parses_to("GET foo \n", &foo);
+        parses_to("GET \"foo\"\n", &foo);
+    }
+
+    #[test]
+    fn get_bytes() {
+        let bytes = Command::Get { key: b"\x01\x02\x03" };
+
+        parses_to("GET \"\x01\x02\x03\"\n", &bytes);
+        parses_to("GET \x01\x02\x03  \n", &bytes);
+    }
+
+    #[test]
+    fn set_empty() {
+        let empty = Command::Set { key: b"", value: b"" };
+
+        parses_to("SET \"\" \"\"\n", &empty);
+    }
+
+    #[test]
+    fn set_ascii() {
+        let foo = Command::Set { key: b"foo", value: b"bar" };
+
+        parses_to("SET foo   bar \n", &foo);
+        parses_to("SET \"foo\" bar \n", &foo);
+        parses_to("SET foo \"bar\" \n", &foo);
+        parses_to("SET \"foo\"  \"bar\"\n", &foo);
+    }
+
+    #[test]
+    fn set_bytes() {
+        let bytes = Command::Set { key: b"\x01\x02\x03", value: b"\x01\x02\x03" };
+        parses_to("SET \"\x01\x02\x03\" \"\x01\x02\x03\" \n", &bytes);
+        parses_to("SET \x01\x02\x03  \x01\x02\x03 \n", &bytes);
     }
 
     fn parses_to(i: &str, cmd: &Command) {
