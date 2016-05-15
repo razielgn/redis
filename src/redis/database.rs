@@ -45,7 +45,7 @@ impl<'a> Database {
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::IncrBy { key, by } => {
                 if !self.memory.contains_key(key) {
-                    self.memory.insert(Vec::from(key), Value::Integer(by));
+                    self.memory.insert(key.to_vec(), Value::Integer(by));
                     return Ok(CommandReturn::Integer(by));
                 }
 
@@ -82,12 +82,11 @@ impl<'a> Database {
         let value = self
             .to_integer(value)
             .map_or_else(
-                || Value::String(Vec::from(value)),
+                || Value::String(value.to_vec()),
                 Value::Integer
             );
 
-        let key = Vec::from(key);
-        self.memory.insert(key, value);
+        self.memory.insert(key.to_vec(), value);
 
         Ok(CommandReturn::Ok)
     }
