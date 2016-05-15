@@ -41,13 +41,7 @@ impl<'a> Database {
             Command::Set { key, value } => self.set(key, value),
             Command::Get { key } => self.get(key),
             Command::Exists { keys } => self.exists(keys),
-            Command::Del { keys } => {
-                let sum = keys.into_iter()
-                    .filter(|key| self.memory.remove(*key).map_or(false, |_| true))
-                    .count();
-
-                Ok(CommandReturn::Size(sum))
-            },
+            Command::Del { keys } => self.del(keys),
             Command::Rename { key, new_key } =>
                 match self.memory.remove(key) {
                     Some(value) => {
@@ -122,6 +116,18 @@ impl<'a> Database {
     fn exists(&self, keys: Vec<Bytes<'a>>) -> CommandResult {
         let sum = keys.into_iter()
             .filter(|key| self.memory.contains_key(*key))
+            .count();
+
+        Ok(CommandReturn::Size(sum))
+    }
+
+    fn del(&mut self, keys: Vec<Bytes<'a>>) -> CommandResult {
+        let sum = keys.into_iter()
+            .filter(|key| {
+                self.memory
+                    .remove(*key)
+                    .map_or(false, |_| true)
+            })
             .count();
 
         Ok(CommandReturn::Size(sum))
