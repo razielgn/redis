@@ -33,25 +33,12 @@ pub struct Database {
     memory: HashMap<Vec<u8>, Value>,
 }
 
-impl Database {
+impl<'a> Database {
     pub fn new() -> Self { Self::default() }
 
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
-            Command::Set { key, value } => {
-                let key = Vec::from(key);
-
-                if let Ok(int) = i64::from_str_radix(&String::from_utf8_lossy(value), 10) {
-                    self.memory.insert(key, Value::Integer(int));
-                } else {
-                    self.memory.insert(
-                        key,
-                        Value::String(Vec::from(value))
-                    );
-                }
-
-                Ok(CommandReturn::Ok)
-            }
+            Command::Set { key, value } => self.set(key, value),
             Command::Get { key } =>
                 match self.memory.get(key) {
                     Some(&Value::String(ref value)) =>
@@ -117,6 +104,25 @@ impl Database {
                 }
             }
         }
+    }
+
+    fn set(&mut self, key: Bytes<'a>, value: Bytes<'a>) -> CommandResult {
+        let value = self
+            .to_integer(value)
+            .map_or_else(
+                || Value::String(Vec::from(value)),
+                Value::Integer
+            );
+
+        let key = Vec::from(key);
+        self.memory.insert(key, value);
+
+        Ok(CommandReturn::Ok)
+    }
+
+    fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
+        let string = String::from_utf8_lossy(bytes);
+        i64::from_str_radix(&string, 10).ok()
     }
 }
 
