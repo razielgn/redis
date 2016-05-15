@@ -43,38 +43,7 @@ impl<'a> Database {
             Command::Exists { keys } => self.exists(keys),
             Command::Del { keys } => self.del(keys),
             Command::Rename { key, new_key } => self.rename(key, new_key),
-            Command::IncrBy { key, by } => {
-                if !self.memory.contains_key(key) {
-                    self.memory.insert(key.to_vec(), Value::Integer(by));
-                    return Ok(CommandReturn::Integer(by));
-                }
-
-                match self.memory.get_mut(key) {
-                    Some(value) => {
-                        let outcome = match *value {
-                            Value::Integer(int) =>
-                                match int.checked_add(by) {
-                                    Some(res) => Ok(res),
-                                    None      => Err(CommandError::IntegerOverflow),
-                                },
-                            Value::String(ref s) if s.is_empty() =>
-                                Ok(by),
-                            _ =>
-                                Err(CommandError::NotAnInteger),
-                        };
-
-                        match outcome {
-                            Ok(int) => {
-                                *value = Value::Integer(int);
-                                Ok(CommandReturn::Integer(int))
-                            }
-                            Err(err) =>
-                                Err(err),
-                        }
-                    }
-                    None => unreachable!()
-                }
-            }
+            Command::IncrBy { key, by } => self.incr_by(key, by),
         }
     }
 
@@ -132,6 +101,34 @@ impl<'a> Database {
             }
             None =>
                 Err(CommandError::NoSuchKey)
+        }
+    }
+
+    fn incr_by(&mut self, key: Bytes<'a>, by: i64) -> CommandResult {
+        if !self.memory.contains_key(key) {
+            self.memory.insert(key.to_vec(), Value::Integer(by));
+            return Ok(CommandReturn::Integer(by));
+        }
+
+        let value = self.memory.get_mut(key).unwrap();
+
+        let outcome = match *value {
+            Value::Integer(int) =>
+                int.checked_add(by)
+                   .ok_or(CommandError::IntegerOverflow),
+            Value::String(ref s) if s.is_empty() =>
+                Ok(by),
+            _ =>
+                Err(CommandError::NotAnInteger),
+        };
+
+        match outcome {
+            Ok(int) => {
+                *value = Value::Integer(int);
+                Ok(CommandReturn::Integer(int))
+            }
+            Err(err) =>
+                Err(err),
         }
     }
 
