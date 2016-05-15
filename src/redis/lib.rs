@@ -1,11 +1,13 @@
 #[macro_use]
 extern crate nom;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io::{self, Write};
+use std::str;
 
-use nom::{multispace};
+use nom::{multispace, digit};
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Command<'a> {
@@ -14,11 +16,18 @@ pub enum Command<'a> {
     Exists { keys: Vec<&'a [u8]> },
     Del { keys: Vec<&'a [u8]> },
     Rename { key: &'a [u8], new_key: &'a [u8] },
+    IncrBy { key: &'a [u8], by: i64 },
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum Value {
+    String(Vec<u8>),
+    Integer(i64),
 }
 
 #[derive(Default, Debug)]
 pub struct State {
-    memory: HashMap<Vec<u8>, Vec<u8>>,
+    memory: HashMap<Vec<u8>, Value>,
 }
 
 impl State {
@@ -27,17 +36,27 @@ impl State {
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
             Command::Set { key, value } => {
-                let _ = self.memory.insert(
-                    Vec::from(key),
-                    Vec::from(value)
-                );
+                let key = Vec::from(key);
+
+                if let Ok(int) = i64::from_str_radix(&String::from_utf8_lossy(value), 10) {
+                    self.memory.insert(key, Value::Integer(int));
+                } else {
+                    self.memory.insert(
+                        key,
+                        Value::String(Vec::from(value))
+                    );
+                }
 
                 Ok(Return::Ok)
             }
             Command::Get { key } =>
                 match self.memory.get(key) {
-                    Some(value) => Ok(Return::BulkString(value)),
-                    None        => Ok(Return::Nil)
+                    Some(&Value::String(ref value)) =>
+                        Ok(Return::BulkString(Cow::Borrowed(value))),
+                    Some(&Value::Integer(int)) =>
+                        Ok(Return::BulkString(Cow::Owned(format!("{}", int).into_bytes()))),
+                    None =>
+                        Ok(Return::Nil)
                 },
             Command::Exists { keys } => {
                 let sum = keys.into_iter()
@@ -61,7 +80,39 @@ impl State {
                     },
                     None =>
                         Err(Error::NoSuchKey)
+                },
+            Command::IncrBy { key, by } => {
+                if !self.memory.contains_key(key) {
+                    self.memory.insert(Vec::from(key), Value::Integer(by));
+                    return Ok(Return::Integer(by));
                 }
+
+                match self.memory.get_mut(key) {
+                    Some(value) => {
+                        let outcome = match *value {
+                            Value::Integer(int) =>
+                                match int.checked_add(by) {
+                                    Some(res) => Ok(res),
+                                    None      => Err(Error::IntegerOverflow),
+                                },
+                            Value::String(ref s) if s.is_empty() =>
+                                Ok(by),
+                            _ =>
+                                Err(Error::NotAnInteger),
+                        };
+
+                        match outcome {
+                            Ok(int) => {
+                                *value = Value::Integer(int);
+                                Ok(Return::Integer(int))
+                            }
+                            Err(err) =>
+                                Err(err),
+                        }
+                    }
+                    None => unreachable!()
+                }
+            }
         }
     }
 }
@@ -71,6 +122,7 @@ pub enum Error<'a> {
     UnknownCommand(&'a [u8]),
     NoSuchKey,
     NotAnInteger,
+    IntegerOverflow,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -80,13 +132,14 @@ pub enum Return<'a> {
     SimpleString(&'a [u8]),
     Integer(i64),
     Size(usize),
-    BulkString(&'a [u8]),
+    BulkString(Cow<'a, [u8]>),
 }
 
 pub type CommandResult<'a> = Result<Return<'a>, Error<'a>>;
 
 #[cfg(test)]
 mod commands {
+    use std::borrow::Cow;
     use super::{State, Command, Return, Error};
 
     #[test]
@@ -104,7 +157,7 @@ mod commands {
         );
 
         assert_eq!(
-            Ok(Return::BulkString(b"bar")),
+            Ok(Return::BulkString(Cow::Borrowed(b"bar"))),
             state.apply(Command::Get { key: b"foo" })
         );
     }
@@ -173,8 +226,47 @@ mod commands {
         );
 
         assert_eq!(
-            Ok(Return::BulkString(b"foo")),
+            Ok(Return::BulkString(Cow::Borrowed(b"foo"))),
             state.apply(Command::Get { key: b"bar" })
+        );
+    }
+
+    #[test]
+    fn incr_by() {
+        let mut state = State::default();
+
+        state.apply(Command::Set { key: b"bar", value: b"" }).unwrap();
+
+        assert_eq!(
+            Ok(Return::Integer(1)),
+            state.apply(Command::IncrBy { key: b"bar", by: 1 })
+        );
+
+        state.apply(Command::Set { key: b"baz", value: b"nope" }).unwrap();
+
+        assert_eq!(
+            Err(Error::NotAnInteger),
+            state.apply(Command::IncrBy { key: b"baz", by: 1 })
+        );
+
+        assert_eq!(
+            Ok(Return::Integer(i64::max_value() - 1)),
+            state.apply(Command::IncrBy { key: b"foo", by: i64::max_value() -1 })
+        );
+
+        assert_eq!(
+            Err(Error::IntegerOverflow),
+            state.apply(Command::IncrBy { key: b"foo", by: 2 })
+        );
+
+        assert_eq!(
+            Ok(Return::Integer(i64::max_value())),
+            state.apply(Command::IncrBy { key: b"foo", by: 1 })
+        );
+
+        assert_eq!(
+            Ok(Return::BulkString(Cow::Owned(format!("{}", i64::max_value()).into_bytes()))),
+            state.apply(Command::Get { key: b"foo" })
         );
     }
 }
@@ -191,7 +283,7 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                     try!(write!(w, "+"));
                     try!(w.write_all(s));
                 }
-                Return::BulkString(s) => {
+                Return::BulkString(ref s) => {
                     try!(write!(w, "${}\r\n", s.len()));
                     try!(w.write_all(s));
                 }
@@ -214,6 +306,8 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                 }
                 Error::NotAnInteger =>
                     try!(write!(w, "value is not an integer or out of range")),
+                Error::IntegerOverflow =>
+                    try!(write!(w, "increment or decrement would overflow")),
             }
         }
     }
@@ -225,6 +319,7 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
 #[cfg(test)]
 mod resp {
     use super::{Return, encode, Error, CommandResult};
+    use std::borrow::Cow;
 
     #[test]
     fn ok() {
@@ -244,8 +339,14 @@ mod resp {
 
     #[test]
     fn bulk_string() {
-        encodes_to(Ok(Return::BulkString(b"")), "$0\r\n\r\n");
-        encodes_to(Ok(Return::BulkString(b"asd")), "$3\r\nasd\r\n");
+        encodes_to(
+            Ok(Return::BulkString(Cow::Borrowed(b""))),
+            "$0\r\n\r\n"
+        );
+        encodes_to(
+            Ok(Return::BulkString(Cow::Borrowed(b"asd"))),
+            "$3\r\nasd\r\n"
+        );
     }
 
     #[test]
@@ -280,6 +381,14 @@ mod resp {
         );
     }
 
+    #[test]
+    fn integer_overflow() {
+        encodes_to(
+            Err(Error::IntegerOverflow),
+            "-ERR increment or decrement would overflow\r\n"
+        );
+    }
+
     fn encodes_to(ret: CommandResult, to: &str) {
         let mut output = Vec::new();
 
@@ -294,6 +403,20 @@ fn not_multispace(c: u8) -> bool {
         _ => true,
     }
 }
+
+named!(integer<i64>,
+    chain!(
+        sign: one_of!("-+")? ~
+        digits: map_res!(
+            map_res!(digit, str::from_utf8),
+            |s| {
+                let sign = sign.unwrap_or('+');
+                i64::from_str_radix(&format!("{}{}", sign, s), 10)
+            }
+        ),
+        || { digits }
+    )
+);
 
 named!(string,
    alt!(
@@ -356,8 +479,30 @@ named!(set<Command>,
     )
 );
 
+named!(incr<Command>,
+    chain!(
+        tag!("INCR") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::IncrBy { key: key, by: 1 } }
+    )
+);
+
+named!(incr_by<Command>,
+    chain!(
+        tag!("INCRBY") ~
+        multispace ~
+        key: string ~
+        multispace? ~
+        by: integer ~
+        multispace?,
+        || { Command::IncrBy { key: key, by: by } }
+    )
+);
+
 named!(pub parser<Command>,
-   alt!(get | set | exists | del | rename)
+   alt!(get | set | exists | del | rename | incr | incr_by)
 );
 
 #[cfg(test)]
@@ -428,6 +573,28 @@ mod parser {
     fn rename() {
         let cmd = Command::Rename { key: b"foo", new_key: b"bar" };
         parses_to("RENAME foo bar", &cmd);
+    }
+
+    #[test]
+    fn incr() {
+        let cmd = Command::IncrBy { key: b"foo", by: 1 };
+        parses_to("INCR foo", &cmd);
+    }
+
+    #[test]
+    fn incr_by() {
+        parses_to(
+            &format!("INCRBY foo {}", i64::max_value()),
+            &Command::IncrBy { key: b"foo", by: i64::max_value() }
+        );
+        parses_to(
+            &format!("INCRBY foo +{}", i64::max_value()),
+            &Command::IncrBy { key: b"foo", by: i64::max_value() }
+        );
+        parses_to(
+            &format!("INCRBY foo {}", i64::min_value()),
+            &Command::IncrBy { key: b"foo", by: i64::min_value() }
+        );
     }
 
     fn parses_to(i: &str, cmd: &Command) {
