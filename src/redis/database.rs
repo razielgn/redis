@@ -45,6 +45,7 @@ impl<'a> Database {
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::IncrBy { key, by } => self.incr_by(key, by),
             Command::DecrBy { key, by } => self.decr_by(key, by),
+            Command::Strlen { key } => self.strlen(key),
         }
     }
 
@@ -161,6 +162,19 @@ impl<'a> Database {
         }
     }
 
+    fn strlen(&self, key: Bytes<'a>) -> CommandResult {
+        let size = match self.memory.get(key) {
+            Some(&Value::String(ref s)) =>
+                s.len(),
+            Some(&Value::Integer(i)) =>
+                format!("{}", i).len(),
+            None =>
+                0,
+        };
+
+        Ok(CommandReturn::Size(size))
+    }
+
     fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
         let string = String::from_utf8_lossy(bytes);
         i64::from_str_radix(&string, 10).ok()
@@ -263,6 +277,30 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::BulkString(Cow::Borrowed(b"foo"))),
             db.apply(Command::Get { key: b"bar" })
+        );
+    }
+
+    #[test]
+    fn strlen() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(0)),
+            db.apply(Command::Strlen { key: b"foo" })
+        );
+
+        db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(3)),
+            db.apply(Command::Strlen { key: b"foo" })
+        );
+
+        db.apply(Command::Set { key: b"foo", value: b"-9999" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(5)),
+            db.apply(Command::Strlen { key: b"foo" })
         );
     }
 

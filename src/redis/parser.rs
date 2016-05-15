@@ -94,6 +94,16 @@ named!(incr<Command>,
     )
 );
 
+named!(strlen<Command>,
+    chain!(
+        tag!("STRLEN") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::Strlen { key: key } }
+    )
+);
+
 named!(incr_by<Command>,
     chain!(
         tag!("INCRBY") ~
@@ -129,7 +139,8 @@ named!(decr_by<Command>,
 );
 
 named!(pub parse<Command>,
-   alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by)
+   alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by |
+        strlen)
 );
 
 #[cfg(test)]
@@ -201,6 +212,12 @@ mod test {
     fn rename() {
         let cmd = Command::Rename { key: b"foo", new_key: b"bar" };
         parses_to("RENAME foo bar", &cmd);
+    }
+
+    #[test]
+    fn strlen() {
+        let cmd = Command::Strlen { key: b"foo" };
+        parses_to("STRLEN foo", &cmd);
     }
 
     #[test]
