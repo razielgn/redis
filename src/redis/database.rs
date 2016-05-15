@@ -39,15 +39,7 @@ impl<'a> Database {
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
             Command::Set { key, value } => self.set(key, value),
-            Command::Get { key } =>
-                match self.memory.get(key) {
-                    Some(&Value::String(ref value)) =>
-                        Ok(CommandReturn::BulkString(Cow::Borrowed(value))),
-                    Some(&Value::Integer(int)) =>
-                        Ok(CommandReturn::BulkString(Cow::Owned(format!("{}", int).into_bytes()))),
-                    None =>
-                        Ok(CommandReturn::Nil)
-                },
+            Command::Get { key } => self.get(key),
             Command::Exists { keys } => {
                 let sum = keys.into_iter()
                     .filter(|key| self.memory.contains_key(*key))
@@ -118,6 +110,19 @@ impl<'a> Database {
         self.memory.insert(key, value);
 
         Ok(CommandReturn::Ok)
+    }
+
+    fn get(&self, key: Bytes<'a>) -> CommandResult {
+        match self.memory.get(key) {
+            Some(&Value::String(ref value)) =>
+                Ok(CommandReturn::BulkString(Cow::Borrowed(value))),
+            Some(&Value::Integer(int)) => {
+                let bytes = format!("{}", int).into_bytes();
+                Ok(CommandReturn::BulkString(Cow::Owned(bytes)))
+            }
+            None =>
+                Ok(CommandReturn::Nil),
+        }
     }
 
     fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
