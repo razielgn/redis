@@ -5,15 +5,3 @@ authors = ["Federico Ravasio <ravasio.federico@gmail.com>"]
 
 [dependencies]
 nom = "1.2.3"
-
-[lib]
-name = "redis"
-path = "src/redis/lib.rs"
-bench = false
-doctest = false
-
-[[bin]]
-name = "redis"
-bench = false
-doc = false
-test = false
