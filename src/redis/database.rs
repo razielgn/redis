@@ -40,13 +40,7 @@ impl<'a> Database {
         match command {
             Command::Set { key, value } => self.set(key, value),
             Command::Get { key } => self.get(key),
-            Command::Exists { keys } => {
-                let sum = keys.into_iter()
-                    .filter(|key| self.memory.contains_key(*key))
-                    .count();
-
-                Ok(CommandReturn::Size(sum))
-            }
+            Command::Exists { keys } => self.exists(keys),
             Command::Del { keys } => {
                 let sum = keys.into_iter()
                     .filter(|key| self.memory.remove(*key).map_or(false, |_| true))
@@ -123,6 +117,14 @@ impl<'a> Database {
             None =>
                 Ok(CommandReturn::Nil),
         }
+    }
+
+    fn exists(&self, keys: Vec<Bytes<'a>>) -> CommandResult {
+        let sum = keys.into_iter()
+            .filter(|key| self.memory.contains_key(*key))
+            .count();
+
+        Ok(CommandReturn::Size(sum))
     }
 
     fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
