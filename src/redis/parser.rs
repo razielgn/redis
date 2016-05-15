@@ -106,8 +106,30 @@ named!(incr_by<Command>,
     )
 );
 
+named!(decr<Command>,
+    chain!(
+        tag!("DECR") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::DecrBy { key: key, by: 1 } }
+    )
+);
+
+named!(decr_by<Command>,
+    chain!(
+        tag!("DECRBY") ~
+        multispace ~
+        key: string ~
+        multispace? ~
+        by: integer ~
+        multispace?,
+        || { Command::DecrBy { key: key, by: by } }
+    )
+);
+
 named!(pub parse<Command>,
-   alt!(get | set | exists | del | rename | incr | incr_by)
+   alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by)
 );
 
 #[cfg(test)]
@@ -188,6 +210,12 @@ mod test {
     }
 
     #[test]
+    fn decr() {
+        let cmd = Command::DecrBy { key: b"foo", by: 1 };
+        parses_to("DECR foo", &cmd);
+    }
+
+    #[test]
     fn incr_by() {
         parses_to(
             &format!("INCRBY foo {}", i64::max_value()),
@@ -200,6 +228,22 @@ mod test {
         parses_to(
             &format!("INCRBY foo {}", i64::min_value()),
             &Command::IncrBy { key: b"foo", by: i64::min_value() }
+        );
+    }
+
+    #[test]
+    fn decr_by() {
+        parses_to(
+            &format!("DECRBY foo {}", i64::max_value()),
+            &Command::DecrBy { key: b"foo", by: i64::max_value() }
+        );
+        parses_to(
+            &format!("DECRBY foo +{}", i64::max_value()),
+            &Command::DecrBy { key: b"foo", by: i64::max_value() }
+        );
+        parses_to(
+            &format!("DECRBY foo {}", i64::min_value()),
+            &Command::DecrBy { key: b"foo", by: i64::min_value() }
         );
     }
 

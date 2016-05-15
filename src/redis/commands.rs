@@ -8,4 +8,5 @@ pub enum Command<'a> {
     Del { keys: Vec<Bytes<'a>> },
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },
     IncrBy { key: Bytes<'a>, by: i64 },
+    DecrBy { key: Bytes<'a>, by: i64 },
 }

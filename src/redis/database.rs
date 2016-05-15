@@ -44,6 +44,7 @@ impl<'a> Database {
             Command::Del { keys } => self.del(keys),
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::IncrBy { key, by } => self.incr_by(key, by),
+            Command::DecrBy { key, by } => self.decr_by(key, by),
         }
     }
 
@@ -118,6 +119,34 @@ impl<'a> Database {
                    .ok_or(CommandError::IntegerOverflow),
             Value::String(ref s) if s.is_empty() =>
                 Ok(by),
+            _ =>
+                Err(CommandError::NotAnInteger),
+        };
+
+        match outcome {
+            Ok(int) => {
+                *value = Value::Integer(int);
+                Ok(CommandReturn::Integer(int))
+            }
+            Err(err) =>
+                Err(err),
+        }
+    }
+
+    fn decr_by(&mut self, key: Bytes<'a>, by: i64) -> CommandResult {
+        if !self.memory.contains_key(key) {
+            self.memory.insert(key.to_vec(), Value::Integer(-by));
+            return Ok(CommandReturn::Integer(-by));
+        }
+
+        let value = self.memory.get_mut(key).unwrap();
+
+        let outcome = match *value {
+            Value::Integer(int) =>
+                int.checked_sub(by)
+                   .ok_or(CommandError::IntegerOverflow),
+            Value::String(ref s) if s.is_empty() =>
+                Ok(-by),
             _ =>
                 Err(CommandError::NotAnInteger),
         };
@@ -287,6 +316,59 @@ mod test {
         assert_eq!(
             Err(CommandError::NotAnInteger),
             db.apply(Command::IncrBy { key: b"baz", by: 1 })
+        );
+    }
+
+    #[test]
+    fn decr_by_empty_string() {
+        let mut db = Database::new();
+        db.apply(Command::Set { key: b"bar", value: b"" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Integer(-1)),
+            db.apply(Command::DecrBy { key: b"bar", by: 1 })
+        );
+    }
+
+    #[test]
+    fn decr_by_non_existing() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Integer(-1)),
+            db.apply(Command::DecrBy { key: b"foo", by: 1 })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"-1"))),
+            db.apply(Command::Get { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn decr_by_overflow() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Ok),
+            db.apply(Command::Set { key: b"foo", value: b"-9223372036854775808" })
+        );
+
+        assert_eq!(
+            Err(CommandError::IntegerOverflow),
+            db.apply(Command::DecrBy { key: b"foo", by: 1 })
+        );
+    }
+
+    #[test]
+    fn decr_by_not_integer() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"baz", value: b"nope" }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::NotAnInteger),
+            db.apply(Command::DecrBy { key: b"baz", by: 1 })
         );
     }
 }
