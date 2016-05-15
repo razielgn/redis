@@ -155,8 +155,8 @@ mod test {
             db.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
         );
 
-        let _ = db.apply(Command::Set { key: b"foo", value: b"foo" });
-        let _ = db.apply(Command::Set { key: b"baz", value: b"baz" });
+        db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
+        db.apply(Command::Set { key: b"baz", value: b"baz" }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Size(2)),
@@ -173,9 +173,9 @@ mod test {
             db.apply(Command::Del { keys: vec!(b"foo", b"bar", b"baz") })
         );
 
-        let _ = db.apply(Command::Set { key: b"foo", value: b"foo" });
-        let _ = db.apply(Command::Set { key: b"bar", value: b"bar" });
-        let _ = db.apply(Command::Set { key: b"baz", value: b"baz" });
+        db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
+        db.apply(Command::Set { key: b"bar", value: b"bar" }).unwrap();
+        db.apply(Command::Set { key: b"baz", value: b"baz" }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Size(2)),
@@ -189,15 +189,19 @@ mod test {
     }
 
     #[test]
-    fn rename() {
+    fn rename_non_existing() {
         let mut db = Database::new();
 
         assert_eq!(
             Err(CommandError::NoSuchKey),
             db.apply(Command::Rename { key: b"foo", new_key: b"bar" })
         );
+    }
 
-        let _ = db.apply(Command::Set { key: b"foo", value: b"foo" });
+    #[test]
+    fn rename() {
+        let mut db = Database::new();
+        db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Ok),
@@ -216,41 +220,55 @@ mod test {
     }
 
     #[test]
-    fn incr_by() {
+    fn incr_by_empty_string() {
         let mut db = Database::new();
-
         db.apply(Command::Set { key: b"bar", value: b"" }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Integer(1)),
             db.apply(Command::IncrBy { key: b"bar", by: 1 })
         );
+    }
+
+    #[test]
+    fn incr_by_non_existing() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Integer(1)),
+            db.apply(Command::IncrBy { key: b"foo", by: 1 })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"1"))),
+            db.apply(Command::Get { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn incr_by_overflow() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Ok),
+            db.apply(Command::Set { key: b"foo", value: b"9223372036854775807" })
+        );
+
+        assert_eq!(
+            Err(CommandError::IntegerOverflow),
+            db.apply(Command::IncrBy { key: b"foo", by: 1 })
+        );
+    }
+
+    #[test]
+    fn incr_by_not_integer() {
+        let mut db = Database::new();
 
         db.apply(Command::Set { key: b"baz", value: b"nope" }).unwrap();
 
         assert_eq!(
             Err(CommandError::NotAnInteger),
             db.apply(Command::IncrBy { key: b"baz", by: 1 })
-        );
-
-        assert_eq!(
-            Ok(CommandReturn::Integer(i64::max_value() - 1)),
-            db.apply(Command::IncrBy { key: b"foo", by: i64::max_value() -1 })
-        );
-
-        assert_eq!(
-            Err(CommandError::IntegerOverflow),
-            db.apply(Command::IncrBy { key: b"foo", by: 2 })
-        );
-
-        assert_eq!(
-            Ok(CommandReturn::Integer(i64::max_value())),
-            db.apply(Command::IncrBy { key: b"foo", by: 1 })
-        );
-
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Owned(format!("{}", i64::max_value()).into_bytes()))),
-            db.apply(Command::Get { key: b"foo" })
         );
     }
 }
