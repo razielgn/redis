@@ -42,15 +42,7 @@ impl<'a> Database {
             Command::Get { key } => self.get(key),
             Command::Exists { keys } => self.exists(keys),
             Command::Del { keys } => self.del(keys),
-            Command::Rename { key, new_key } =>
-                match self.memory.remove(key) {
-                    Some(value) => {
-                        self.memory.insert(Vec::from(new_key), value);
-                        Ok(CommandReturn::Ok)
-                    },
-                    None =>
-                        Err(CommandError::NoSuchKey)
-                },
+            Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::IncrBy { key, by } => {
                 if !self.memory.contains_key(key) {
                     self.memory.insert(Vec::from(key), Value::Integer(by));
@@ -131,6 +123,17 @@ impl<'a> Database {
             .count();
 
         Ok(CommandReturn::Size(sum))
+    }
+
+    fn rename(&mut self, key: Bytes<'a>, new_key: Bytes<'a>) -> CommandResult {
+        match self.memory.remove(key) {
+            Some(value) => {
+                self.memory.insert(new_key.to_vec(), value);
+                Ok(CommandReturn::Ok)
+            }
+            None =>
+                Err(CommandError::NoSuchKey)
+        }
     }
 
     fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
