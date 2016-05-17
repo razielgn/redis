@@ -46,17 +46,12 @@ impl<'a> Database {
             Command::IncrBy { key, by } => self.incr_by(key, by),
             Command::DecrBy { key, by } => self.decr_by(key, by),
             Command::Strlen { key } => self.strlen(key),
+            Command::Append { key, value } => self.append(key, value),
         }
     }
 
-    fn set(&mut self, key: Bytes<'a>, value: Bytes<'a>) -> CommandResult {
-        let value = self
-            .to_integer(value)
-            .map_or_else(
-                || Value::String(value.to_vec()),
-                Value::Integer
-            );
-
+    fn set(&mut self, key: Bytes<'a>, bytes: Bytes<'a>) -> CommandResult {
+        let value = integer_or_string(bytes);
         self.memory.insert(key.to_vec(), value);
 
         Ok(CommandReturn::Ok)
@@ -175,10 +170,41 @@ impl<'a> Database {
         Ok(CommandReturn::Size(size))
     }
 
-    fn to_integer(&self, bytes: Bytes<'a>) -> Option<i64> {
-        let string = String::from_utf8_lossy(bytes);
-        i64::from_str_radix(&string, 10).ok()
+    fn append(&mut self, key: Bytes<'a>, value: Bytes<'a>) -> CommandResult {
+        if !self.memory.contains_key(key) {
+            let _ = try!(self.set(key, value));
+            return Ok(CommandReturn::Size(value.len()));
+        }
+
+        let old_value = self.memory.get_mut(key).unwrap();
+
+        let size = match *old_value {
+            Value::Integer(int) => {
+                let mut bytes = format!("{}", int).into_bytes();
+                bytes.extend_from_slice(value);
+                let len = bytes.len();
+                *old_value = integer_or_string(&bytes);
+                len
+            }
+            Value::String(ref mut s) => {
+                let len = s.len() + value.len();
+                s.extend_from_slice(value);
+                len
+            }
+        };
+
+        Ok(CommandReturn::Size(size))
     }
+}
+
+fn integer_or_string(bytes: Bytes) -> Value {
+    let string = String::from_utf8_lossy(bytes);
+    i64::from_str_radix(&string, 10)
+        .ok()
+        .map_or_else(
+            || Value::String(bytes.to_vec()),
+            Value::Integer
+        )
 }
 
 #[cfg(test)]
@@ -407,6 +433,56 @@ mod test {
         assert_eq!(
             Err(CommandError::NotAnInteger),
             db.apply(Command::DecrBy { key: b"baz", by: 1 })
+        );
+    }
+
+    #[test]
+    fn append_str() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(3)),
+            db.apply(Command::Append { key: b"foo", value: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"bar"))),
+            db.apply(Command::Get { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Size(6)),
+            db.apply(Command::Append { key: b"foo", value: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"barbar"))),
+            db.apply(Command::Get { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn append_int() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(1)),
+            db.apply(Command::Append { key: b"foo", value: b"5" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Integer(6)),
+            db.apply(Command::IncrBy { key: b"foo", by: 1 })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Size(3)),
+            db.apply(Command::Append { key: b"foo", value: b"28" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Integer(629)),
+            db.apply(Command::IncrBy { key: b"foo", by: 1 })
         );
     }
 }

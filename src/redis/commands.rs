@@ -10,4 +10,5 @@ pub enum Command<'a> {
     IncrBy { key: Bytes<'a>, by: i64 },
     DecrBy { key: Bytes<'a>, by: i64 },
     Strlen { key: Bytes<'a> },
+    Append { key: Bytes<'a>, value: Bytes<'a> },
 }

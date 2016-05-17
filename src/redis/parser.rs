@@ -84,6 +84,18 @@ named!(set<Command>,
     )
 );
 
+named!(append<Command>,
+    chain!(
+        tag!("APPEND") ~
+        multispace ~
+        key: string ~
+        multispace ~
+        value: string ~
+        multispace?,
+        || { Command::Append { key: key, value: value } }
+    )
+);
+
 named!(incr<Command>,
     chain!(
         tag!("INCR") ~
@@ -140,7 +152,7 @@ named!(decr_by<Command>,
 
 named!(pub parse<Command>,
    alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by |
-        strlen)
+        strlen | append)
 );
 
 #[cfg(test)]
@@ -261,6 +273,14 @@ mod test {
         parses_to(
             &format!("DECRBY foo {}", i64::min_value()),
             &Command::DecrBy { key: b"foo", by: i64::min_value() }
+        );
+    }
+
+    #[test]
+    fn append() {
+        parses_to(
+            "APPEND foo bar",
+            &Command::Append { key: b"foo", value: b"bar" }
         );
     }
 
