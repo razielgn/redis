@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use redis::database::{CommandError, CommandReturn, CommandResult};
+use redis::database::{CommandError, CommandReturn, CommandResult, Type};
 
 pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
     match *result {
@@ -17,6 +17,10 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                     try!(write!(w, ":{}", i)),
                 CommandReturn::Size(u) =>
                     try!(write!(w, ":{}", u)),
+                CommandReturn::Type(Type::None) =>
+                    try!(write!(w, "+none")),
+                CommandReturn::Type(Type::String) =>
+                    try!(write!(w, "+string")),
             }
         }
         Err(ref err) => {
@@ -44,7 +48,7 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
 
 #[cfg(test)]
 mod test {
-    use redis::database::{CommandError, CommandReturn, CommandResult};
+    use redis::database::{CommandError, CommandReturn, CommandResult, Type};
     use std::borrow::Cow;
     use super::{encode};
 
@@ -79,6 +83,12 @@ mod test {
     #[test]
     fn size() {
         encodes_to(Ok(CommandReturn::Size(1238439)), ":1238439\r\n");
+    }
+
+    #[test]
+    fn type_() {
+        encodes_to(Ok(CommandReturn::Type(Type::None)), "+none\r\n");
+        encodes_to(Ok(CommandReturn::Type(Type::String)), "+string\r\n");
     }
 
     #[test]

@@ -11,4 +11,5 @@ pub enum Command<'a> {
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },
     Set { key: Bytes<'a>, value: Bytes<'a> },
     Strlen { key: Bytes<'a> },
+    Type { key: Bytes<'a> },
 }

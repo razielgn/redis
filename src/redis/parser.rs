@@ -106,6 +106,16 @@ named!(incr<Command>,
     )
 );
 
+named!(type_<Command>,
+    chain!(
+        tag!("TYPE") ~
+        multispace ~
+        key: string ~
+        multispace?,
+        || { Command::Type { key: key } }
+    )
+);
+
 named!(strlen<Command>,
     chain!(
         tag!("STRLEN") ~
@@ -152,7 +162,7 @@ named!(decr_by<Command>,
 
 named!(pub parse<Command>,
    alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by |
-        strlen | append)
+        strlen | append | type_)
 );
 
 #[cfg(test)]
@@ -281,6 +291,14 @@ mod test {
         parses_to(
             "APPEND foo bar",
             &Command::Append { key: b"foo", value: b"bar" }
+        );
+    }
+
+    #[test]
+    fn type_() {
+        parses_to(
+            "TYPE foo",
+            &Command::Type { key: b"foo" }
         );
     }
 

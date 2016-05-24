@@ -18,12 +18,19 @@ pub enum CommandError<'a> {
 }
 
 #[derive(PartialEq, Eq, Debug)]
+pub enum Type {
+    None,
+    String,
+}
+
+#[derive(PartialEq, Eq, Debug)]
 pub enum CommandReturn<'a> {
     Ok,
     Nil,
     Integer(i64),
     Size(usize),
     BulkString(Cow<'a, [u8]>),
+    Type(Type),
 }
 
 pub type CommandResult<'a> = Result<CommandReturn<'a>, CommandError<'a>>;
@@ -47,6 +54,7 @@ impl<'a> Database {
             Command::DecrBy { key, by } => self.decr_by(key, by),
             Command::Strlen { key } => self.strlen(key),
             Command::Append { key, value } => self.append(key, value),
+            Command::Type { key } => self.type_(key),
         }
     }
 
@@ -195,6 +203,15 @@ impl<'a> Database {
 
         Ok(CommandReturn::Size(size))
     }
+
+    fn type_(&self, key: Bytes<'a>) -> CommandResult {
+        match self.memory.get(key) {
+            Some(&Value::String(..)) | Some(&Value::Integer(..)) =>
+                Ok(CommandReturn::Type(Type::String)),
+            None =>
+                Ok(CommandReturn::Type(Type::None)),
+        }
+    }
 }
 
 fn integer_or_string(bytes: Bytes) -> Value {
@@ -211,7 +228,7 @@ fn integer_or_string(bytes: Bytes) -> Value {
 mod test {
     use redis::commands::Command;
     use std::borrow::Cow;
-    use super::{Database, CommandReturn, CommandError};
+    use super::{Database, CommandReturn, CommandError, Type};
 
     #[test]
     fn get_and_set() {
@@ -483,6 +500,29 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::Integer(629)),
             db.apply(Command::IncrBy { key: b"foo", by: 1 })
+        );
+    }
+
+    #[test]
+    fn type_() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+        db.apply(Command::Set { key: b"bar", value: b"1" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Type(Type::String)),
+            db.apply(Command::Type { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Type(Type::String)),
+            db.apply(Command::Type { key: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Type(Type::None)),
+            db.apply(Command::Type { key: b"baz" })
         );
     }
 }
