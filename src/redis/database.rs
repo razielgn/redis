@@ -45,15 +45,15 @@ impl<'a> Database {
 
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
-            Command::Set { key, value } => self.set(key, value),
-            Command::Get { key } => self.get(key),
-            Command::Exists { keys } => self.exists(keys),
-            Command::Del { keys } => self.del(keys),
-            Command::Rename { key, new_key } => self.rename(key, new_key),
-            Command::IncrBy { key, by } => self.incr_by(key, by),
-            Command::DecrBy { key, by } => self.decr_by(key, by),
-            Command::Strlen { key } => self.strlen(key),
             Command::Append { key, value } => self.append(key, value),
+            Command::DecrBy { key, by } => self.decr_by(key, by),
+            Command::Del { keys } => self.del(keys),
+            Command::Exists { keys } => self.exists(keys),
+            Command::Get { key } => self.get(key),
+            Command::IncrBy { key, by } => self.incr_by(key, by),
+            Command::Rename { key, new_key } => self.rename(key, new_key),
+            Command::Set { key, value } => self.set(key, value),
+            Command::Strlen { key } => self.strlen(key),
             Command::Type { key } => self.type_(key),
         }
     }
