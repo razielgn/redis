@@ -46,7 +46,7 @@ impl<'a> Database {
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
             Command::Append { key, value } => self.append(key, value),
-            Command::DecrBy { key, by } => self.decr_by(key, by),
+            Command::DecrBy { key, by } => self.incr_by(key, -by),
             Command::Del { keys } => self.del(keys),
             Command::Exists { keys } => self.exists(keys),
             Command::Get { key } => self.get(key),
@@ -58,10 +58,12 @@ impl<'a> Database {
         }
     }
 
-    fn set(&mut self, key: Bytes<'a>, bytes: Bytes<'a>) -> CommandResult {
-        let value = integer_or_string(bytes);
+    fn insert(&mut self, key: Bytes<'a>, value: Value) {
         self.memory.insert(key.to_vec(), value);
+    }
 
+    fn set(&mut self, key: Bytes<'a>, bytes: Bytes<'a>) -> CommandResult {
+        self.insert(key, integer_or_string(bytes));
         Ok(CommandReturn::Ok)
     }
 
@@ -99,25 +101,23 @@ impl<'a> Database {
     }
 
     fn rename(&mut self, key: Bytes<'a>, new_key: Bytes<'a>) -> CommandResult {
-        match self.memory.remove(key) {
-            Some(value) => {
-                self.memory.insert(new_key.to_vec(), value);
-                Ok(CommandReturn::Ok)
-            }
-            None =>
-                Err(CommandError::NoSuchKey)
-        }
+        self.memory.remove(key)
+            .ok_or(CommandError::NoSuchKey)
+            .map(|value| {
+                self.insert(new_key, value);
+                CommandReturn::Ok
+            })
     }
 
     fn incr_by(&mut self, key: Bytes<'a>, by: i64) -> CommandResult {
         if !self.memory.contains_key(key) {
-            self.memory.insert(key.to_vec(), Value::Integer(by));
+            self.insert(key, Value::Integer(by));
             return Ok(CommandReturn::Integer(by));
         }
 
         let value = self.memory.get_mut(key).unwrap();
 
-        let outcome = match *value {
+        match *value {
             Value::Integer(int) =>
                 int.checked_add(by)
                    .ok_or(CommandError::IntegerOverflow),
@@ -125,44 +125,10 @@ impl<'a> Database {
                 Ok(by),
             _ =>
                 Err(CommandError::NotAnInteger),
-        };
-
-        match outcome {
-            Ok(int) => {
-                *value = Value::Integer(int);
-                Ok(CommandReturn::Integer(int))
-            }
-            Err(err) =>
-                Err(err),
-        }
-    }
-
-    fn decr_by(&mut self, key: Bytes<'a>, by: i64) -> CommandResult {
-        if !self.memory.contains_key(key) {
-            self.memory.insert(key.to_vec(), Value::Integer(-by));
-            return Ok(CommandReturn::Integer(-by));
-        }
-
-        let value = self.memory.get_mut(key).unwrap();
-
-        let outcome = match *value {
-            Value::Integer(int) =>
-                int.checked_sub(by)
-                   .ok_or(CommandError::IntegerOverflow),
-            Value::String(ref s) if s.is_empty() =>
-                Ok(-by),
-            _ =>
-                Err(CommandError::NotAnInteger),
-        };
-
-        match outcome {
-            Ok(int) => {
-                *value = Value::Integer(int);
-                Ok(CommandReturn::Integer(int))
-            }
-            Err(err) =>
-                Err(err),
-        }
+        }.map(|int| {
+            *value = Value::Integer(int);
+            CommandReturn::Integer(int)
+        })
     }
 
     fn strlen(&self, key: Bytes<'a>) -> CommandResult {
