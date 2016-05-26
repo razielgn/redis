@@ -1,4 +1,4 @@
-use nom::{multispace, digit};
+use nom::{multispace, digit, alpha};
 use redis::commands::Command;
 use std::str;
 
@@ -30,139 +30,56 @@ named!(string,
    )
 );
 
-named!(get<Command>,
+named!(key_value<(&[u8], &[u8])>,
     chain!(
-        tag!("GET") ~
-        multispace ~
-        key: string ~
-        multispace?,
-        || { Command::Get { key: key } }
-    )
-);
-
-named!(rename<Command>,
-    chain!(
-        tag!("RENAME") ~
-        multispace ~
-        key: string ~
-        multispace? ~
-        new_key: string ~
-        multispace?,
-        || { Command::Rename { key: key, new_key: new_key } }
-    )
-);
-
-named!(exists<Command>,
-    chain!(
-        tag!("EXISTS") ~
-        multispace ~
-        keys: separated_nonempty_list!(multispace, string) ~
-        multispace?,
-        || { Command::Exists { keys: keys } }
-    )
-);
-
-named!(del<Command>,
-    chain!(
-        tag!("DEL") ~
-        multispace ~
-        keys: separated_nonempty_list!(multispace, string) ~
-        multispace?,
-        || { Command::Del { keys: keys } }
-    )
-);
-
-named!(set<Command>,
-    chain!(
-        tag!("SET") ~
-        multispace ~
         key: string ~
         multispace ~
-        value: string ~
-        multispace?,
-        || { Command::Set { key: key, value: value } }
+        value: string,
+        || (key, value)
     )
 );
 
-named!(append<Command>,
+named!(key_int<(&[u8], i64)>,
     chain!(
-        tag!("APPEND") ~
-        multispace ~
         key: string ~
         multispace ~
-        value: string ~
-        multispace?,
-        || { Command::Append { key: key, value: value } }
+        by: integer,
+        || (key, by)
     )
 );
 
-named!(incr<Command>,
-    chain!(
-        tag!("INCR") ~
-        multispace ~
-        key: string ~
-        multispace?,
-        || { Command::IncrBy { key: key, by: 1 } }
-    )
+named!(keys<Vec<&[u8]> >,
+    separated_nonempty_list!(multispace, string)
 );
 
-named!(type_<Command>,
+named!(command,
     chain!(
-        tag!("TYPE") ~
-        multispace ~
-        key: string ~
-        multispace?,
-        || { Command::Type { key: key } }
-    )
-);
-
-named!(strlen<Command>,
-    chain!(
-        tag!("STRLEN") ~
-        multispace ~
-        key: string ~
-        multispace?,
-        || { Command::Strlen { key: key } }
-    )
-);
-
-named!(incr_by<Command>,
-    chain!(
-        tag!("INCRBY") ~
-        multispace ~
-        key: string ~
-        multispace? ~
-        by: integer ~
-        multispace?,
-        || { Command::IncrBy { key: key, by: by } }
-    )
-);
-
-named!(decr<Command>,
-    chain!(
-        tag!("DECR") ~
-        multispace ~
-        key: string ~
-        multispace?,
-        || { Command::DecrBy { key: key, by: 1 } }
-    )
-);
-
-named!(decr_by<Command>,
-    chain!(
-        tag!("DECRBY") ~
-        multispace ~
-        key: string ~
-        multispace? ~
-        by: integer ~
-        multispace?,
-        || { Command::DecrBy { key: key, by: by } }
+        command: alpha ~
+        multispace,
+        || command
     )
 );
 
 named!(pub parse<Command>,
-   alt!(get | set | exists | del | rename | incr | incr_by | decr | decr_by |
-        strlen | append | type_)
+    chain!(
+        multispace? ~
+        command: switch!(command,
+            b"GET"    => map!(string, |k| Command::Get { key: k })
+          | b"TYPE"   => map!(string, |k| Command::Type { key: k })
+          | b"STRLEN" => map!(string, |k| Command::Strlen { key: k })
+          | b"INCR"   => map!(string, |k| Command::IncrBy { key: k, by: 1 })
+          | b"DECR"   => map!(string, |k| Command::DecrBy { key: k, by: 1 })
+          | b"INCRBY" => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
+          | b"DECRBY" => map!(key_int, |(k, by)| Command::DecrBy { key: k, by: by })
+          | b"SET"    => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
+          | b"APPEND" => map!(key_value, |(k, v)| Command::Append { key: k, value: v })
+          | b"RENAME" => map!(key_value, |(k1, k2)| Command::Rename { key: k1, new_key: k2 })
+          | b"EXISTS" => map!(keys, |keys| Command::Exists { keys: keys })
+          | b"DEL"    => map!(keys, |keys| Command::Del { keys: keys })
+        ) ~
+        multispace?,
+        || command
+    )
 );
 
 #[cfg(test)]
@@ -176,6 +93,7 @@ mod test {
         let empty = Command::Get { key: b"" };
 
         parses_to("GET \"\"\n", &empty);
+        parses_to("   GET \"\"\n", &empty);
     }
 
     #[test]
