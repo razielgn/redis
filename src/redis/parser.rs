@@ -1,5 +1,5 @@
 use nom::{multispace, digit, alpha};
-use redis::commands::Command;
+use redis::commands::{Command, Range};
 use std::str;
 
 fn not_multispace(c: u8) -> bool {
@@ -30,12 +30,30 @@ named!(string,
    )
 );
 
+named!(range<Range>,
+    chain!(
+        multispace ~
+        start: integer ~
+        multispace ~
+        end: integer,
+        || start..end
+    )
+);
+
 named!(key_value<(&[u8], &[u8])>,
     chain!(
         key: string ~
         multispace ~
         value: string,
         || (key, value)
+    )
+);
+
+named!(key_range<(&[u8], Option<Range>)>,
+    chain!(
+        key: string ~
+        range: opt!(range),
+        || (key, range)
     )
 );
 
@@ -64,18 +82,19 @@ named!(pub parse<Command>,
     chain!(
         multispace? ~
         command: switch!(command,
-            b"GET"    => map!(string, |k| Command::Get { key: k })
-          | b"TYPE"   => map!(string, |k| Command::Type { key: k })
-          | b"STRLEN" => map!(string, |k| Command::Strlen { key: k })
-          | b"INCR"   => map!(string, |k| Command::IncrBy { key: k, by: 1 })
-          | b"DECR"   => map!(string, |k| Command::DecrBy { key: k, by: 1 })
-          | b"INCRBY" => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
-          | b"DECRBY" => map!(key_int, |(k, by)| Command::DecrBy { key: k, by: by })
-          | b"SET"    => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
-          | b"APPEND" => map!(key_value, |(k, v)| Command::Append { key: k, value: v })
-          | b"RENAME" => map!(key_value, |(k1, k2)| Command::Rename { key: k1, new_key: k2 })
-          | b"EXISTS" => map!(keys, |keys| Command::Exists { keys: keys })
-          | b"DEL"    => map!(keys, |keys| Command::Del { keys: keys })
+            b"GET"      => map!(string, |k| Command::Get { key: k })
+          | b"TYPE"     => map!(string, |k| Command::Type { key: k })
+          | b"STRLEN"   => map!(string, |k| Command::Strlen { key: k })
+          | b"INCR"     => map!(string, |k| Command::IncrBy { key: k, by: 1 })
+          | b"DECR"     => map!(string, |k| Command::DecrBy { key: k, by: 1 })
+          | b"BITCOUNT" => map!(key_range, |(k, r)| Command::BitCount { key: k, range: r })
+          | b"INCRBY"   => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
+          | b"DECRBY"   => map!(key_int, |(k, by)| Command::DecrBy { key: k, by: by })
+          | b"SET"      => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
+          | b"APPEND"   => map!(key_value, |(k, v)| Command::Append { key: k, value: v })
+          | b"RENAME"   => map!(key_value, |(k1, k2)| Command::Rename { key: k1, new_key: k2 })
+          | b"EXISTS"   => map!(keys, |keys| Command::Exists { keys: keys })
+          | b"DEL"      => map!(keys, |keys| Command::Del { keys: keys })
         ) ~
         multispace?,
         || command
@@ -217,6 +236,24 @@ mod test {
         parses_to(
             "TYPE foo",
             &Command::Type { key: b"foo" }
+        );
+    }
+
+    #[test]
+    fn bit_count() {
+        parses_to(
+            "BITCOUNT foo",
+            &Command::BitCount { key: b"foo", range: None }
+        );
+
+        parses_to(
+            "BITCOUNT foo -1 25",
+            &Command::BitCount { key: b"foo", range: Some(-1..25) }
+        );
+
+        parses_to(
+            "BITCOUNT foo 1 -25",
+            &Command::BitCount { key: b"foo", range: Some(1..-25) }
         );
     }
 

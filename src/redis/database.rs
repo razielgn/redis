@@ -1,4 +1,4 @@
-use redis::commands::{Bytes, Command};
+use redis::commands::{Bytes, Command, Range};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::default::Default;
@@ -46,6 +46,7 @@ impl<'a> Database {
     pub fn apply(&mut self, command: Command) -> CommandResult {
         match command {
             Command::Append { key, value } => self.append(key, value),
+            Command::BitCount { key, range } => self.bit_count(key, range),
             Command::DecrBy { key, by } => self.incr_by(key, -by),
             Command::Del { keys } => self.del(keys),
             Command::Exists { keys } => self.exists(keys),
@@ -177,6 +178,31 @@ impl<'a> Database {
             None =>
                 Ok(CommandReturn::Type(Type::None)),
         }
+    }
+
+    fn bit_count(&self, key: Bytes<'a>, _range: Option<Range>) -> CommandResult {
+        let count_bits = |slice: &[u8]| -> usize {
+            slice.iter().fold(0, |acc, c| acc + c.count_ones() as usize)
+        };
+
+        let ret = self.memory.get(key)
+            .map_or(
+                CommandReturn::Size(0),
+                |value| {
+                    let count = match *value {
+                        Value::String(ref s) =>
+                            count_bits(s),
+                        Value::Integer(i) => {
+                            let as_str = format!("{}", i);
+                            count_bits(as_str.as_bytes())
+                        }
+                    };
+
+                    CommandReturn::Size(count)
+                }
+            );
+
+        Ok(ret)
     }
 }
 
@@ -489,6 +515,37 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::Type(Type::None)),
             db.apply(Command::Type { key: b"baz" })
+        );
+    }
+
+    #[test]
+    fn bit_count() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(0)),
+            db.apply(Command::BitCount { key: b"foo", range: None })
+        );
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(10)),
+            db.apply(Command::BitCount { key: b"foo", range: None })
+        );
+
+        db.apply(Command::Set { key: b"foo", value: b"1234934" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(24)),
+            db.apply(Command::BitCount { key: b"foo", range: None })
+        );
+
+        db.apply(Command::Set { key: b"foo", value: b"-1234934" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(28)),
+            db.apply(Command::BitCount { key: b"foo", range: None })
         );
     }
 }
