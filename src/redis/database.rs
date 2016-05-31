@@ -1,13 +1,18 @@
+#![warn(unknown_lints)]
+#![warn(linkedlist)]
+
 use redis::commands::{Bytes, Command, IntRange};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, LinkedList};
 use std::default::Default;
+use std::iter::FromIterator;
 use std::ops::Range;
 
 #[derive(Debug)]
 enum Value {
     String(Vec<u8>),
     Integer(i64),
+    List(LinkedList<Vec<u8>>),
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -16,12 +21,14 @@ pub enum CommandError<'a> {
     NoSuchKey,
     NotAnInteger,
     IntegerOverflow,
+    WrongType,
 }
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Type {
     None,
     String,
+    List,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -54,6 +61,7 @@ impl<'a> Database {
             Command::Get { key } => self.get(key),
             Command::GetRange { key, range } => self.get_range(key, range),
             Command::IncrBy { key, by } => self.incr_by(key, by),
+            Command::LPush { key, values } => self.lpush(key, values),
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::Set { key, value } => self.set(key, value),
             Command::Strlen { key } => self.strlen(key),
@@ -78,6 +86,8 @@ impl<'a> Database {
                 let bytes = format!("{}", int).into_bytes();
                 Ok(CommandReturn::BulkString(Cow::Owned(bytes)))
             }
+            Some(_) =>
+                Err(CommandError::WrongType),
             None =>
                 Ok(CommandReturn::Nil),
         }
@@ -135,16 +145,19 @@ impl<'a> Database {
     }
 
     fn strlen(&self, key: Bytes<'a>) -> CommandResult {
-        let size = match self.memory.get(key) {
+        match self.memory.get(key) {
             Some(&Value::String(ref s)) =>
-                s.len(),
+                Some(s.len()),
             Some(&Value::Integer(i)) =>
-                format!("{}", i).len(),
+                Some(format!("{}", i).len()),
+            Some(_) =>
+                None,
             None =>
-                0,
-        };
-
-        Ok(CommandReturn::Size(size))
+                Some(0),
+        }.map_or(
+            Err(CommandError::WrongType),
+            |size| Ok(CommandReturn::Size(size))
+        )
     }
 
     fn append(&mut self, key: Bytes<'a>, value: Bytes<'a>) -> CommandResult {
@@ -155,76 +168,105 @@ impl<'a> Database {
 
         let old_value = self.memory.get_mut(key).unwrap();
 
-        let size = match *old_value {
+        match *old_value {
             Value::Integer(int) => {
                 let mut bytes = format!("{}", int).into_bytes();
                 bytes.extend_from_slice(value);
                 let len = bytes.len();
                 *old_value = integer_or_string(&bytes);
-                len
+                Some(len)
             }
             Value::String(ref mut s) => {
                 let len = s.len() + value.len();
                 s.extend_from_slice(value);
-                len
+                Some(len)
             }
-        };
-
-        Ok(CommandReturn::Size(size))
+            _ =>
+                None
+        }.map_or(
+            Err(CommandError::WrongType),
+            |size| Ok(CommandReturn::Size(size))
+        )
     }
 
     fn type_(&self, key: Bytes<'a>) -> CommandResult {
         match self.memory.get(key) {
             Some(&Value::String(..)) | Some(&Value::Integer(..)) =>
                 Ok(CommandReturn::Type(Type::String)),
+            Some(&Value::List(..)) =>
+                Ok(CommandReturn::Type(Type::List)),
             None =>
                 Ok(CommandReturn::Type(Type::None)),
         }
     }
 
     fn bit_count(&self, key: Bytes<'a>, range: Option<IntRange>) -> CommandResult {
-        let ret = self.memory.get(key)
+        self.memory.get(key)
             .map_or(
-                CommandReturn::Size(0),
+                Ok(CommandReturn::Size(0)),
                 |value| {
-                    let count = match *value {
+                    match *value {
                         Value::String(ref s) =>
-                            count_on_bits(s, range),
+                            Some(count_on_bits(s, range)),
                         Value::Integer(i) => {
                             let as_str = format!("{}", i);
-                            count_on_bits(as_str.as_bytes(), range)
+                            Some(count_on_bits(as_str.as_bytes(), range))
                         }
-                    };
-
-                    CommandReturn::Size(count)
+                        _ =>
+                            None
+                    }.map_or(
+                        Err(CommandError::WrongType),
+                        |count| Ok(CommandReturn::Size(count))
+                    )
                 }
-            );
-
-        Ok(ret)
+            )
     }
 
     fn get_range(&self, key: Bytes<'a>, range: IntRange) -> CommandResult {
-        let string = self.memory
-            .get(key)
-            .and_then(|value| {
-                match *value {
-                    Value::String(ref s) =>
-                        range_calc(range, s.len())
-                            .map(|range| Cow::Borrowed(&s[range])),
-                    Value::Integer(n) => {
-                        let s = format!("{}", n);
+        match self.memory.get(key) {
+            Some(&Value::String(ref s)) => {
+                let range = range_calc(range, s.len())
+                    .map(|range| Cow::Borrowed(&s[range]))
+                    .unwrap_or(Cow::Borrowed(&b""[..]));
 
-                        range_calc(range, s.len())
-                            .map(|range| {
-                                let bytes = s[range].as_bytes().to_vec();
-                                Cow::Owned(bytes)
-                            })
-                    }
-                }
-            })
-            .unwrap_or(Cow::Borrowed(b""));
+                Ok(CommandReturn::BulkString(range))
+            }
+            Some(&Value::Integer(n)) => {
+                let s = format!("{}", n);
+                let range = range_calc(range, s.len())
+                    .map(|range| {
+                        let bytes = s[range].as_bytes().to_vec();
+                        Cow::Owned(bytes)
+                    })
+                    .unwrap_or(Cow::Borrowed(&b""[..]));
 
-        Ok(CommandReturn::BulkString(string))
+                Ok(CommandReturn::BulkString(range))
+            }
+            Some(_) =>
+                Err(CommandError::WrongType),
+            None =>
+                Ok(CommandReturn::BulkString(Cow::Borrowed(&b""[..]))),
+        }
+    }
+
+    fn lpush(&mut self, key: Bytes<'a>, values: Vec<Bytes<'a>>) -> CommandResult {
+        if !self.memory.contains_key(key) {
+            let list = LinkedList::from_iter(
+                values.iter().map(|value| value.to_vec())
+            );
+
+            self.insert(key, Value::List(list));
+            return Ok(CommandReturn::Size(values.len()));
+        }
+
+        let value = self.memory.get_mut(key).unwrap();
+
+        if let Value::List(ref mut list) = *value {
+            list.extend(values.into_iter().map(|value| value.to_vec()));
+            Ok(CommandReturn::Size(list.len()))
+        } else {
+            Err(CommandError::WrongType)
+        }
     }
 }
 
@@ -305,6 +347,18 @@ mod test {
 
         assert_eq!(
             Ok(CommandReturn::BulkString(Cow::Borrowed(b"bar"))),
+            db.apply(Command::Get { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn get_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
             db.apply(Command::Get { key: b"foo" })
         );
     }
@@ -391,6 +445,18 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::Size(value.len())),
             db.apply(Command::Strlen { key: &key })
+        );
+    }
+
+    #[test]
+    fn strlen_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::Strlen { key: b"foo" })
         );
     }
 
@@ -553,11 +619,24 @@ mod test {
     }
 
     #[test]
+    fn append_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::Append { key: b"foo", value: b"bar" })
+        );
+    }
+
+    #[test]
     fn type_() {
         let mut db = Database::new();
 
         db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
         db.apply(Command::Set { key: b"bar", value: b"1" }).unwrap();
+        db.apply(Command::LPush { key: b"kak", values: vec![b"1"] }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Type(Type::String)),
@@ -567,6 +646,11 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::Type(Type::String)),
             db.apply(Command::Type { key: b"bar" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Type(Type::List)),
+            db.apply(Command::Type { key: b"kak" })
         );
 
         assert_eq!(
@@ -633,6 +717,18 @@ mod test {
         }
     }
 
+    #[test]
+    fn bitcount_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::BitCount { key: b"foo", range: None })
+        );
+    }
+
     #[quickcheck]
     fn get_range_missing(range: Range<i64>) {
         let mut db = Database::new();
@@ -668,6 +764,18 @@ mod test {
         }
     }
 
+    #[test]
+    fn get_range_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::GetRange { key: b"foo", range: 0..0 })
+        );
+    }
+
     #[quickcheck]
     fn get_range_string_qc(value: Vec<u8>, range: Range<i64>) -> bool {
         let mut db = Database::new();
@@ -692,6 +800,43 @@ mod test {
         assert_eq!(
             Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
             db.apply(Command::GetRange { key: b"foo", range: range })
+        );
+    }
+
+    #[quickcheck]
+    fn lpush(values: Vec<Vec<u8>>) {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(values.len())),
+            db.apply(Command::LPush {
+                key: b"foo",
+                values: values.iter()
+                    .map(Vec::as_slice)
+                    .collect(),
+            })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Size(values.len() * 2)),
+            db.apply(Command::LPush {
+                key: b"foo",
+                values: values.iter()
+                    .map(Vec::as_slice)
+                    .collect(),
+            })
+        );
+    }
+
+    #[test]
+    fn lpush_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::LPush { key: b"foo", values: vec![b"bar"] })
         );
     }
 

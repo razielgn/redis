@@ -49,6 +49,15 @@ named!(key_value<(&[u8], &[u8])>,
     )
 );
 
+named!(key_values<(&[u8], Vec<&[u8]>)>,
+    chain!(
+        key: string ~
+        multispace ~
+        values: separated_nonempty_list!(multispace, string),
+        || (key, values)
+    )
+);
+
 named!(key_range_opt<(&[u8], Option<IntRange>)>,
     tuple!(string, opt!(range))
 );
@@ -94,6 +103,7 @@ named!(pub parse<Command>,
           | b"SET"      => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
           | b"APPEND"   => map!(key_value, |(k, v)| Command::Append { key: k, value: v })
           | b"RENAME"   => map!(key_value, |(k1, k2)| Command::Rename { key: k1, new_key: k2 })
+          | b"LPUSH"    => map!(key_values, |(k, vs)| Command::LPush { key: k, values: vs })
           | b"EXISTS"   => map!(keys, |keys| Command::Exists { keys: keys })
           | b"DEL"      => map!(keys, |keys| Command::Del { keys: keys })
         ) ~
@@ -268,6 +278,22 @@ mod test {
         parses_to(
             "GETRANGE foo 1 -25",
             &Command::GetRange { key: b"foo", range: 1..-25 }
+        );
+    }
+
+    #[test]
+    fn lpush() {
+        parses_to(
+            "LPUSH foo br bazz 234 -4",
+            &Command::LPush {
+                key: b"foo",
+                values: vec![
+                    &b"br"[..],
+                    &b"bazz"[..],
+                    &b"234"[..],
+                    &b"-4"[..]
+                ],
+            }
         );
     }
 

@@ -21,23 +21,27 @@ pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
                     try!(write!(w, "+none")),
                 CommandReturn::Type(Type::String) =>
                     try!(write!(w, "+string")),
+                CommandReturn::Type(Type::List) =>
+                    try!(write!(w, "+list")),
             }
         }
         Err(ref err) => {
-            try!(write!(w, "-ERR "));
+            try!(write!(w, "-"));
 
             match *err {
                 CommandError::NoSuchKey =>
-                    try!(write!(w, "no such key")),
+                    try!(write!(w, "ERR no such key")),
+                CommandError::WrongType =>
+                    try!(write!(w, "WRONGTYPE Operation against a key holding the wrong kind of value")),
                 CommandError::UnknownCommand(cmd) => {
-                    try!(write!(w, "unknown command '"));
+                    try!(write!(w, "ERR unknown command '"));
                     try!(w.write_all(cmd));
                     try!(write!(w, "'"));
                 }
                 CommandError::NotAnInteger =>
-                    try!(write!(w, "value is not an integer or out of range")),
+                    try!(write!(w, "ERR value is not an integer or out of range")),
                 CommandError::IntegerOverflow =>
-                    try!(write!(w, "increment or decrement would overflow")),
+                    try!(write!(w, "ERR increment or decrement would overflow")),
             }
         }
     }
@@ -94,6 +98,14 @@ mod test {
     #[test]
     fn no_such_key() {
         encodes_to(Err(CommandError::NoSuchKey), "-ERR no such key\r\n");
+    }
+
+    #[test]
+    fn wrong_type() {
+        encodes_to(
+            Err(CommandError::WrongType),
+            "-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+        );
     }
 
     #[test]
