@@ -1,5 +1,5 @@
-#![warn(unknown_lints)]
-#![warn(linkedlist)]
+#![allow(unknown_lints)]
+#![allow(linkedlist)]
 
 use redis::commands::{Bytes, Command, IntRange};
 use std::borrow::Cow;
