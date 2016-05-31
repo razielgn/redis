@@ -226,19 +226,23 @@ impl<'a> Database {
         match self.memory.get(key) {
             Some(&Value::String(ref s)) => {
                 let range = range_calc(range, s.len())
-                    .map(|range| Cow::Borrowed(&s[range]))
-                    .unwrap_or(Cow::Borrowed(&b""[..]));
+                    .map_or(
+                        Cow::Borrowed(&b""[..]),
+                        |range| Cow::Borrowed(&s[range])
+                    );
 
                 Ok(CommandReturn::BulkString(range))
             }
             Some(&Value::Integer(n)) => {
                 let s = format!("{}", n);
                 let range = range_calc(range, s.len())
-                    .map(|range| {
-                        let bytes = s[range].as_bytes().to_vec();
-                        Cow::Owned(bytes)
-                    })
-                    .unwrap_or(Cow::Borrowed(&b""[..]));
+                    .map_or(
+                        Cow::Borrowed(&b""[..]),
+                        |range| {
+                            let bytes = s[range].as_bytes().to_vec();
+                            Cow::Owned(bytes)
+                        }
+                    );
 
                 Ok(CommandReturn::BulkString(range))
             }
@@ -312,13 +316,12 @@ fn count_on_bits(slice: &[u8], range: Option<IntRange>) -> usize {
     match range {
         Some(range) =>
             range_calc(range, slice.len())
-                .map(|range| {
+                .map_or(0, |range| {
                     slice.iter()
                         .skip(range.start)
                         .take(range.end - range.start)
                         .fold(0, folder)
-                })
-                .unwrap_or(0),
+                }),
         None =>
             slice.iter().fold(0, folder),
     }
