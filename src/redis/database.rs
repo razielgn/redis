@@ -208,34 +208,27 @@ impl<'a> Database {
     }
 
     fn get_range(&self, key: Bytes<'a>, range: IntRange) -> CommandResult {
-        let s = self.memory.get(key)
-            .map_or(
-                Cow::Borrowed(&b""[..]),
-                |value| {
-                    match *value {
-                        Value::String(ref s) => {
-                            match range_calc(range, s.len()) {
-                                Some(range) =>
-                                    Cow::Borrowed(&s[range]),
-                                None =>
-                                    Cow::Borrowed(b""),
-                            }
-                        }
-                        Value::Integer(n) => {
-                            let s = format!("{}", n);
+        let string = self.memory
+            .get(key)
+            .and_then(|value| {
+                match *value {
+                    Value::String(ref s) =>
+                        range_calc(range, s.len())
+                            .map(|range| Cow::Borrowed(&s[range])),
+                    Value::Integer(n) => {
+                        let s = format!("{}", n);
 
-                            match range_calc(range, s.len()) {
-                                Some(range) =>
-                                    Cow::Owned(s[range].as_bytes().to_vec()),
-                                None =>
-                                    Cow::Borrowed(b""),
-                            }
-                        }
+                        range_calc(range, s.len())
+                            .map(|range| {
+                                let bytes = s[range].as_bytes().to_vec();
+                                Cow::Owned(bytes)
+                            })
                     }
                 }
-            );
+            })
+            .unwrap_or(Cow::Borrowed(b""));
 
-        Ok(CommandReturn::BulkString(s))
+        Ok(CommandReturn::BulkString(string))
     }
 }
 
