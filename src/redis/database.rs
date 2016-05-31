@@ -182,21 +182,17 @@ impl<'a> Database {
         }
     }
 
-    fn bit_count(&self, key: Bytes<'a>, _range: Option<IntRange>) -> CommandResult {
-        let count_bits = |slice: &[u8]| -> usize {
-            slice.iter().fold(0, |acc, c| acc + c.count_ones() as usize)
-        };
-
+    fn bit_count(&self, key: Bytes<'a>, range: Option<IntRange>) -> CommandResult {
         let ret = self.memory.get(key)
             .map_or(
                 CommandReturn::Size(0),
                 |value| {
                     let count = match *value {
                         Value::String(ref s) =>
-                            count_bits(s),
+                            count_on_bits(s, range),
                         Value::Integer(i) => {
                             let as_str = format!("{}", i);
-                            count_bits(as_str.as_bytes())
+                            count_on_bits(as_str.as_bytes(), range)
                         }
                     };
 
@@ -266,6 +262,24 @@ fn integer_or_string(bytes: Bytes) -> Value {
             || Value::String(bytes.to_vec()),
             Value::Integer
         )
+}
+
+fn count_on_bits(slice: &[u8], range: Option<IntRange>) -> usize {
+    let folder = |sum, c: &u8| sum + c.count_ones() as usize;
+
+    match range {
+        Some(range) =>
+            range_calc(range, slice.len())
+                .map(|range| {
+                    slice.iter()
+                        .skip(range.start)
+                        .take(range.end - range.start)
+                        .fold(0, folder)
+                })
+                .unwrap_or(0),
+        None =>
+            slice.iter().fold(0, folder),
+    }
 }
 
 #[cfg(test)]
@@ -592,6 +606,33 @@ mod test {
         );
     }
 
+    #[test]
+    fn bit_count_range() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"Lorem ipsum" }).unwrap();
+
+        let examples = vec![
+            (0..0, 3),
+            (0..5, 23),
+            (0..-1, 45),
+            (0..-12, 3),
+            (0..-13, 3),
+            (-1..-5, 0),
+            (-5..-1, 22),
+            (-12..0, 3),
+        ];
+
+        for (range, size) in examples {
+            println!("range: {:?}, size: {:?}", range, size);
+
+            assert_eq!(
+                Ok(CommandReturn::Size(size)),
+                db.apply(Command::BitCount { key: b"foo", range: Some(range) })
+            );
+        }
+    }
+
     #[quickcheck]
     fn get_range_missing(range: Range<i64>) {
         let mut db = Database::new();
@@ -614,7 +655,6 @@ mod test {
             (0..-1, &b"Lorem ipsum"[..]),
             (0..-12, &b"L"[..]),
             (0..-13, &b"L"[..]),
-            (-1..-5, &b""[..]),
             (-1..-5, &b""[..]),
             (-5..-1, &b"ipsum"[..]),
             (-12..0, &b"L"[..]),
@@ -667,7 +707,6 @@ mod test {
             (0..-1, &b"-1234567890"[..]),
             (0..-12, &b"-"[..]),
             (0..-13, &b"-"[..]),
-            (-1..-5, &b""[..]),
             (-1..-5, &b""[..]),
             (-5..-1, &b"67890"[..]),
             (-12..0, &b"-"[..]),
