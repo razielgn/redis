@@ -1,5 +1,5 @@
 use nom::{multispace, digit, alpha};
-use redis::commands::{Command, Range};
+use redis::commands::{Command, IntRange};
 use std::str;
 
 fn not_multispace(c: u8) -> bool {
@@ -30,7 +30,7 @@ named!(string,
    )
 );
 
-named!(range<Range>,
+named!(range<IntRange>,
     chain!(
         multispace ~
         start: integer ~
@@ -49,12 +49,12 @@ named!(key_value<(&[u8], &[u8])>,
     )
 );
 
-named!(key_range<(&[u8], Option<Range>)>,
-    chain!(
-        key: string ~
-        range: opt!(range),
-        || (key, range)
-    )
+named!(key_range_opt<(&[u8], Option<IntRange>)>,
+    tuple!(string, opt!(range))
+);
+
+named!(key_range<(&[u8], IntRange)>,
+    tuple!(string, range)
 );
 
 named!(key_int<(&[u8], i64)>,
@@ -87,7 +87,8 @@ named!(pub parse<Command>,
           | b"STRLEN"   => map!(string, |k| Command::Strlen { key: k })
           | b"INCR"     => map!(string, |k| Command::IncrBy { key: k, by: 1 })
           | b"DECR"     => map!(string, |k| Command::DecrBy { key: k, by: 1 })
-          | b"BITCOUNT" => map!(key_range, |(k, r)| Command::BitCount { key: k, range: r })
+          | b"BITCOUNT" => map!(key_range_opt, |(k, r)| Command::BitCount { key: k, range: r })
+          | b"GETRANGE" => map!(key_range, |(k, r)| Command::GetRange { key: k, range: r })
           | b"INCRBY"   => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
           | b"DECRBY"   => map!(key_int, |(k, by)| Command::DecrBy { key: k, by: by })
           | b"SET"      => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
@@ -254,6 +255,19 @@ mod test {
         parses_to(
             "BITCOUNT foo 1 -25",
             &Command::BitCount { key: b"foo", range: Some(1..-25) }
+        );
+    }
+
+    #[test]
+    fn get_range() {
+        parses_to(
+            "GETRANGE foo -1 25",
+            &Command::GetRange { key: b"foo", range: -1..25 }
+        );
+
+        parses_to(
+            "GETRANGE foo 1 -25",
+            &Command::GetRange { key: b"foo", range: 1..-25 }
         );
     }
 

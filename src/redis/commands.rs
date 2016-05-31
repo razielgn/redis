@@ -1,16 +1,17 @@
-use std::ops;
+use std::ops::Range;
 
 pub type Bytes<'a> = &'a [u8];
-pub type Range = ops::Range<i64>;
+pub type IntRange = Range<i64>;
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Command<'a> {
     Append { key: Bytes<'a>, value: Bytes<'a> },
-    BitCount { key: Bytes<'a>, range: Option<Range> },
+    BitCount { key: Bytes<'a>, range: Option<IntRange> },
     DecrBy { key: Bytes<'a>, by: i64 },
     Del { keys: Vec<Bytes<'a>> },
     Exists { keys: Vec<Bytes<'a>> },
     Get { key: Bytes<'a> },
+    GetRange { key: Bytes<'a>, range: IntRange },
     IncrBy { key: Bytes<'a>, by: i64 },
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },
     Set { key: Bytes<'a>, value: Bytes<'a> },

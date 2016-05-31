@@ -1,7 +1,8 @@
-use redis::commands::{Bytes, Command, Range};
+use redis::commands::{Bytes, Command, IntRange};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::default::Default;
+use std::ops::Range;
 
 #[derive(Debug)]
 enum Value {
@@ -51,6 +52,7 @@ impl<'a> Database {
             Command::Del { keys } => self.del(keys),
             Command::Exists { keys } => self.exists(keys),
             Command::Get { key } => self.get(key),
+            Command::GetRange { key, range } => self.get_range(key, range),
             Command::IncrBy { key, by } => self.incr_by(key, by),
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::Set { key, value } => self.set(key, value),
@@ -180,7 +182,7 @@ impl<'a> Database {
         }
     }
 
-    fn bit_count(&self, key: Bytes<'a>, _range: Option<Range>) -> CommandResult {
+    fn bit_count(&self, key: Bytes<'a>, _range: Option<IntRange>) -> CommandResult {
         let count_bits = |slice: &[u8]| -> usize {
             slice.iter().fold(0, |acc, c| acc + c.count_ones() as usize)
         };
@@ -203,6 +205,63 @@ impl<'a> Database {
             );
 
         Ok(ret)
+    }
+
+    fn get_range(&self, key: Bytes<'a>, range: IntRange) -> CommandResult {
+        let s = self.memory.get(key)
+            .map_or(
+                Cow::Borrowed(&b""[..]),
+                |value| {
+                    match *value {
+                        Value::String(ref s) => {
+                            match range_calc(range, s.len()) {
+                                Some(range) =>
+                                    Cow::Borrowed(&s[range]),
+                                None =>
+                                    Cow::Borrowed(b""),
+                            }
+                        }
+                        Value::Integer(n) => {
+                            let s = format!("{}", n);
+
+                            match range_calc(range, s.len()) {
+                                Some(range) =>
+                                    Cow::Owned(s[range].as_bytes().to_vec()),
+                                None =>
+                                    Cow::Borrowed(b""),
+                            }
+                        }
+                    }
+                }
+            );
+
+        Ok(CommandReturn::BulkString(s))
+    }
+}
+
+fn range_calc(r: IntRange, len: usize) -> Option<Range<usize>> {
+    let start =
+        if r.start < 0 {
+            len.checked_sub(r.start.abs() as usize).unwrap_or(0)
+        } else {
+            r.start.abs() as usize
+        };
+
+    let mut end =
+        if r.end < 0 {
+            len.checked_sub(r.end.abs() as usize - 1).unwrap_or(0)
+        } else {
+            r.end.abs() as usize
+        };
+
+    if end >= len {
+        end = len.checked_sub(1).unwrap_or(0);
+    }
+
+    if start > end || len == 0 {
+        None
+    } else {
+        Some(start .. end + 1)
     }
 }
 
@@ -547,5 +606,79 @@ mod test {
             Ok(CommandReturn::Size(28)),
             db.apply(Command::BitCount { key: b"foo", range: None })
         );
+    }
+
+    #[test]
+    fn get_range_missing() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
+            db.apply(Command::GetRange { key: b"foo", range: 0..0 })
+        );
+    }
+
+    #[test]
+    fn get_range_string() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"Lorem ipsum" }).unwrap();
+
+        let examples = vec![
+            (0..0, &b"L"[..]),
+            (0..5, &b"Lorem "[..]),
+            (0..-1, &b"Lorem ipsum"[..]),
+            (0..-12, &b"L"[..]),
+            (0..-13, &b"L"[..]),
+            (-1..-5, &b""[..]),
+            (-1..-5, &b""[..]),
+            (-5..-1, &b"ipsum"[..]),
+            (-12..0, &b"L"[..]),
+        ];
+
+        for (range, result) in examples {
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(result))),
+                db.apply(Command::GetRange { key: b"foo", range: range })
+            );
+        }
+    }
+
+    #[test]
+    fn get_range_empty_string() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"" }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
+            db.apply(Command::GetRange { key: b"foo", range: 5..230 })
+        );
+    }
+
+    #[test]
+    fn get_range_number() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"-1234567890" }).unwrap();
+
+        let examples = vec![
+            (0..0, &b"-"[..]),
+            (0..5, &b"-12345"[..]),
+            (0..-1, &b"-1234567890"[..]),
+            (0..-12, &b"-"[..]),
+            (0..-13, &b"-"[..]),
+            (-1..-5, &b""[..]),
+            (-1..-5, &b""[..]),
+            (-5..-1, &b"67890"[..]),
+            (-12..0, &b"-"[..]),
+        ];
+
+        for (range, result) in examples {
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(result))),
+                db.apply(Command::GetRange { key: b"foo", range: range })
+            );
+        }
     }
 }
