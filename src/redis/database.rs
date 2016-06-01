@@ -61,6 +61,7 @@ impl<'a> Database {
             Command::Get { key } => self.get(key),
             Command::GetRange { key, range } => self.get_range(key, range),
             Command::IncrBy { key, by } => self.incr_by(key, by),
+            Command::LLen { key } => self.llen(key),
             Command::LPush { key, values } => self.lpush(key, values),
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::Set { key, value } => self.set(key, value),
@@ -270,6 +271,17 @@ impl<'a> Database {
             Ok(CommandReturn::Size(list.len()))
         } else {
             Err(CommandError::WrongType)
+        }
+    }
+
+    fn llen(&mut self, key: Bytes<'a>) -> CommandResult {
+        match self.memory.get(key) {
+            Some(&Value::List(ref list)) =>
+                Ok(CommandReturn::Size(list.len())),
+            Some(_) =>
+                Err(CommandError::WrongType),
+            None =>
+                Ok(CommandReturn::Size(0)),
         }
     }
 }
@@ -840,6 +852,47 @@ mod test {
         assert_eq!(
             Err(CommandError::WrongType),
             db.apply(Command::LPush { key: b"foo", values: vec![b"bar"] })
+        );
+    }
+
+    #[quickcheck]
+    fn llen(values: Vec<Vec<u8>>) {
+        let mut db = Database::new();
+
+        db.apply(
+            Command::LPush {
+                key: b"foo",
+                values: values.iter()
+                    .map(Vec::as_slice)
+                    .collect(),
+            }
+        ).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(values.len())),
+            db.apply(Command::LLen { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn llen_missing_key() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Size(0)),
+            db.apply(Command::LLen { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn llen_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::LLen { key: b"foo" })
         );
     }
 
