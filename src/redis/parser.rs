@@ -101,6 +101,7 @@ named!(pub parse<Command>,
           | b"GETRANGE" => map!(key_range, |(k, r)| Command::GetRange { key: k, range: r })
           | b"INCRBY"   => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
           | b"DECRBY"   => map!(key_int, |(k, by)| Command::DecrBy { key: k, by: by })
+          | b"LINDEX"   => map!(key_int, |(k, i)| Command::LIndex { key: k, index: i })
           | b"SET"      => map!(key_value, |(k, v)| Command::Set { key: k, value: v })
           | b"APPEND"   => map!(key_value, |(k, v)| Command::Append { key: k, value: v })
           | b"RENAME"   => map!(key_value, |(k1, k2)| Command::Rename { key: k1, new_key: k2 })
@@ -295,6 +296,14 @@ mod test {
                     &b"-4"[..]
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn lindex() {
+        parses_to(
+            "LINDEX foo -1",
+            &Command::LIndex { key: b"foo", index: -1 }
         );
     }
 

@@ -13,6 +13,7 @@ pub enum Command<'a> {
     Get { key: Bytes<'a> },
     GetRange { key: Bytes<'a>, range: IntRange },
     IncrBy { key: Bytes<'a>, by: i64 },
+    LIndex { key: Bytes<'a>, index: i64 },
     LLen { key: Bytes<'a> },
     LPush { key: Bytes<'a>, values: Vec<Bytes<'a>> },
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },

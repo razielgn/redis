@@ -61,6 +61,7 @@ impl<'a> Database {
             Command::Get { key } => self.get(key),
             Command::GetRange { key, range } => self.get_range(key, range),
             Command::IncrBy { key, by } => self.incr_by(key, by),
+            Command::LIndex { key, index } => self.lindex(key, index),
             Command::LLen { key } => self.llen(key),
             Command::LPush { key, values } => self.lpush(key, values),
             Command::Rename { key, new_key } => self.rename(key, new_key),
@@ -284,6 +285,24 @@ impl<'a> Database {
                 Ok(CommandReturn::Size(0)),
         }
     }
+
+    fn lindex(&self, key: Bytes<'a>, index: i64) -> CommandResult {
+        match self.memory.get(key) {
+            Some(&Value::List(ref list)) =>
+                pos_calc(index, list.len())
+                    .and_then(|i| list.iter().nth(i))
+                    .map_or(
+                        Ok(CommandReturn::Nil),
+                        |value| {
+                            Ok(CommandReturn::BulkString(Cow::Borrowed(value)))
+                        }
+                    ),
+            Some(_) =>
+                Err(CommandError::WrongType),
+            None =>
+                Ok(CommandReturn::Nil),
+        }
+    }
 }
 
 fn range_calc(r: IntRange, len: usize) -> Option<Range<usize>> {
@@ -309,6 +328,20 @@ fn range_calc(r: IntRange, len: usize) -> Option<Range<usize>> {
         None
     } else {
         Some(start .. end + 1)
+    }
+}
+
+fn pos_calc(index: i64, len: usize) -> Option<usize> {
+    if index >= 0 {
+        let index = index as usize;
+
+        if index >= len {
+            None
+        } else {
+            Some(index)
+        }
+    } else {
+        len.checked_sub(index.abs() as usize)
     }
 }
 
@@ -919,6 +952,58 @@ mod test {
                 db.apply(Command::GetRange { key: b"foo", range: range })
             );
         }
+    }
+
+    #[quickcheck]
+    fn lindex_missing_key(key: Vec<u8>, index: i64) {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::Nil),
+            db.apply(Command::LIndex { key: &key, index: index })
+        );
+    }
+
+    #[test]
+    fn lindex() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush {
+            key: b"foo",
+            values: vec![b"a", b"b", b"c"],
+        }).unwrap();
+
+        let table = vec![
+            (-4, CommandReturn::Nil),
+            (-3, CommandReturn::BulkString(Cow::Borrowed(b"a"))),
+            (-2, CommandReturn::BulkString(Cow::Borrowed(b"b"))),
+            (-1, CommandReturn::BulkString(Cow::Borrowed(b"c"))),
+            ( 0, CommandReturn::BulkString(Cow::Borrowed(b"a"))),
+            ( 1, CommandReturn::BulkString(Cow::Borrowed(b"b"))),
+            ( 2, CommandReturn::BulkString(Cow::Borrowed(b"c"))),
+            ( 3, CommandReturn::Nil),
+        ];
+
+        for (i, ret) in table {
+            println!("{:?} {:?}", i, ret);
+
+            assert_eq!(
+                Ok(ret),
+                db.apply(Command::LIndex { key: b"foo", index: i })
+            );
+        }
+    }
+
+    #[test]
+    fn lindex_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::LIndex { key: b"foo", index: 0 })
+        );
     }
 
     fn contains<T: PartialEq + Eq>(a: &[T], b: &[T]) -> bool {
