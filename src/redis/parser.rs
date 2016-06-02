@@ -97,6 +97,7 @@ named!(pub parse<Command>,
           | b"LLEN"     => map!(string, |k| Command::LLen { key: k })
           | b"INCR"     => map!(string, |k| Command::IncrBy { key: k, by: 1 })
           | b"DECR"     => map!(string, |k| Command::DecrBy { key: k, by: 1 })
+          | b"LPOP"     => map!(string, |k| Command::LPop { key: k })
           | b"BITCOUNT" => map!(key_range_opt, |(k, r)| Command::BitCount { key: k, range: r })
           | b"GETRANGE" => map!(key_range, |(k, r)| Command::GetRange { key: k, range: r })
           | b"INCRBY"   => map!(key_int, |(k, by)| Command::IncrBy { key: k, by: by })
@@ -310,6 +311,11 @@ mod test {
     #[test]
     fn llen() {
         parses_to("LLEN foo", &Command::LLen { key: b"foo" });
+    }
+
+    #[test]
+    fn lpop() {
+        parses_to("LPOP foo", &Command::LPop { key: b"foo" });
     }
 
     fn parses_to(i: &str, cmd: &Command) {

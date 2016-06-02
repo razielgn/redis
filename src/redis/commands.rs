@@ -15,6 +15,7 @@ pub enum Command<'a> {
     IncrBy { key: Bytes<'a>, by: i64 },
     LIndex { key: Bytes<'a>, index: i64 },
     LLen { key: Bytes<'a> },
+    LPop { key: Bytes<'a> },
     LPush { key: Bytes<'a>, values: Vec<Bytes<'a>> },
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },
     Set { key: Bytes<'a>, value: Bytes<'a> },

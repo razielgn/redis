@@ -63,6 +63,7 @@ impl<'a> Database {
             Command::IncrBy { key, by } => self.incr_by(key, by),
             Command::LIndex { key, index } => self.lindex(key, index),
             Command::LLen { key } => self.llen(key),
+            Command::LPop { key } => self.lpop(key),
             Command::LPush { key, values } => self.lpush(key, values),
             Command::Rename { key, new_key } => self.rename(key, new_key),
             Command::Set { key, value } => self.set(key, value),
@@ -297,6 +298,22 @@ impl<'a> Database {
                             Ok(CommandReturn::BulkString(Cow::Borrowed(value)))
                         }
                     ),
+            Some(_) =>
+                Err(CommandError::WrongType),
+            None =>
+                Ok(CommandReturn::Nil),
+        }
+    }
+
+    fn lpop(&mut self, key: Bytes<'a>) -> CommandResult {
+        match self.memory.get_mut(key) {
+            Some(&mut Value::List(ref mut list)) =>
+                match list.pop_front() {
+                    Some(value) =>
+                        Ok(CommandReturn::BulkString(Cow::Owned(value))),
+                    None =>
+                        Ok(CommandReturn::Nil),
+                },
             Some(_) =>
                 Err(CommandError::WrongType),
             None =>
@@ -1003,6 +1020,48 @@ mod test {
         assert_eq!(
             Err(CommandError::WrongType),
             db.apply(Command::LIndex { key: b"foo", index: 0 })
+        );
+    }
+
+    #[test]
+    fn lpop() {
+        let mut db = Database::new();
+
+        db.apply(Command::LPush {
+            key: b"foo",
+            values: vec![b"a", b"b", b"c"],
+        }).unwrap();
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"a"))),
+            db.apply(Command::LPop { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"b"))),
+            db.apply(Command::LPop { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"c"))),
+            db.apply(Command::LPop { key: b"foo" })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::Nil),
+            db.apply(Command::LPop { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn lpop_wrong_type() {
+        let mut db = Database::new();
+
+        db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
+
+        assert_eq!(
+            Err(CommandError::WrongType),
+            db.apply(Command::LPop { key: b"foo" })
         );
     }
 
