@@ -39,6 +39,7 @@ pub enum CommandReturn<'a> {
     Size(usize),
     BulkString(Cow<'a, [u8]>),
     Type(Type),
+    Array(Vec<CommandReturn<'a>>),
 }
 
 pub type CommandResult<'a> = Result<CommandReturn<'a>, CommandError<'a>>;

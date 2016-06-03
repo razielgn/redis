@@ -3,51 +3,64 @@ use redis::database::{CommandError, CommandReturn, CommandResult, Type};
 
 pub fn encode<T: Write>(result: &CommandResult, w: &mut T) -> io::Result<()> {
     match *result {
-        Ok(ref ret) => {
-            match *ret {
-                CommandReturn::Ok =>
-                    try!(write!(w, "+OK")),
-                CommandReturn::Nil =>
-                    try!(write!(w, "$-1")),
-                CommandReturn::BulkString(ref s) => {
-                    try!(write!(w, "${}\r\n", s.len()));
-                    try!(w.write_all(s));
-                }
-                CommandReturn::Integer(i) =>
-                    try!(write!(w, ":{}", i)),
-                CommandReturn::Size(u) =>
-                    try!(write!(w, ":{}", u)),
-                CommandReturn::Type(Type::None) =>
-                    try!(write!(w, "+none")),
-                CommandReturn::Type(Type::String) =>
-                    try!(write!(w, "+string")),
-                CommandReturn::Type(Type::List) =>
-                    try!(write!(w, "+list")),
-            }
-        }
-        Err(ref err) => {
-            try!(write!(w, "-"));
+        Ok(ref ret)  => encode_return(ret, w),
+        Err(ref err) => encode_error(err, w),
+    }
+}
 
-            match *err {
-                CommandError::NoSuchKey =>
-                    try!(write!(w, "ERR no such key")),
-                CommandError::WrongType =>
-                    try!(write!(w, "WRONGTYPE Operation against a key holding the wrong kind of value")),
-                CommandError::UnknownCommand(cmd) => {
-                    try!(write!(w, "ERR unknown command '"));
-                    try!(w.write_all(cmd));
-                    try!(write!(w, "'"));
-                }
-                CommandError::NotAnInteger =>
-                    try!(write!(w, "ERR value is not an integer or out of range")),
-                CommandError::IntegerOverflow =>
-                    try!(write!(w, "ERR increment or decrement would overflow")),
+fn encode_return<T: Write>(ret: &CommandReturn, w: &mut T) -> io::Result<()> {
+    match *ret {
+        CommandReturn::Ok =>
+            try!(write!(w, "+OK\r\n")),
+        CommandReturn::Nil =>
+            try!(write!(w, "$-1\r\n")),
+        CommandReturn::BulkString(ref s) => {
+            try!(write!(w, "${}\r\n", s.len()));
+            try!(w.write_all(s));
+            try!(write!(w, "\r\n"));
+        }
+        CommandReturn::Integer(i) =>
+            try!(write!(w, ":{}\r\n", i)),
+        CommandReturn::Size(u) =>
+            try!(write!(w, ":{}\r\n", u)),
+        CommandReturn::Type(Type::None) =>
+            try!(write!(w, "+none\r\n")),
+        CommandReturn::Type(Type::String) =>
+            try!(write!(w, "+string\r\n")),
+        CommandReturn::Type(Type::List) =>
+            try!(write!(w, "+list\r\n")),
+        CommandReturn::Array(ref v) => {
+            try!(write!(w, "*{}\r\n", v.len()));
+
+            for m in v {
+                try!(encode_return(m, w));
             }
         }
     }
 
-    try!(write!(w, "\r\n"));
     Ok(())
+}
+
+fn encode_error<T: Write>(err: &CommandError, w: &mut T) -> io::Result<()> {
+    try!(write!(w, "-"));
+
+    match *err {
+        CommandError::NoSuchKey =>
+            try!(write!(w, "ERR no such key")),
+        CommandError::WrongType =>
+            try!(write!(w, "WRONGTYPE Operation against a key holding the wrong kind of value")),
+        CommandError::UnknownCommand(cmd) => {
+            try!(write!(w, "ERR unknown command '"));
+            try!(w.write_all(cmd));
+            try!(write!(w, "'"));
+        }
+        CommandError::NotAnInteger =>
+            try!(write!(w, "ERR value is not an integer or out of range")),
+        CommandError::IntegerOverflow =>
+            try!(write!(w, "ERR increment or decrement would overflow")),
+    }
+
+    write!(w, "\r\n")
 }
 
 #[cfg(test)]
@@ -93,6 +106,27 @@ mod test {
     fn type_() {
         encodes_to(Ok(CommandReturn::Type(Type::None)), "+none\r\n");
         encodes_to(Ok(CommandReturn::Type(Type::String)), "+string\r\n");
+        encodes_to(Ok(CommandReturn::Type(Type::List)), "+list\r\n");
+    }
+
+    #[test]
+    fn array() {
+        encodes_to(Ok(CommandReturn::Array(vec![])), "*0\r\n");
+
+        let array = vec![
+            CommandReturn::Ok,
+            CommandReturn::Nil,
+            CommandReturn::Integer(-25),
+            CommandReturn::Size(42),
+            CommandReturn::BulkString(Cow::Borrowed(b"foo")),
+            CommandReturn::BulkString(Cow::Owned(b"bar".to_vec())),
+            CommandReturn::Type(Type::String),
+        ];
+
+        encodes_to(
+            Ok(CommandReturn::Array(array)),
+            "*7\r\n+OK\r\n$-1\r\n:-25\r\n:42\r\n$3\r\nfoo\r\n$3\r\nbar\r\n+string\r\n"
+        );
     }
 
     #[test]
