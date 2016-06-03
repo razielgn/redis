@@ -491,10 +491,12 @@ mod test {
             db.apply(Command::Rename { key: &key, new_key: &new_key })
         );
 
-        assert_eq!(
-            Ok(CommandReturn::Nil),
-            db.apply(Command::Get { key: &key })
-        );
+        if key != new_key {
+            assert_eq!(
+                Ok(CommandReturn::Nil),
+                db.apply(Command::Get { key: &key })
+            );
+        }
 
         assert_eq!(
             Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
