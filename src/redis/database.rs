@@ -388,7 +388,7 @@ fn count_on_bits(slice: &[u8], range: Option<IntRange>) -> usize {
     }
 }
 
-fn push_to_list(list: &mut LinkedList<Vec<u8>>, values: &Vec<Bytes>) {
+fn push_to_list(list: &mut LinkedList<Vec<u8>>, values: &[Bytes]) {
     for v in values {
         list.push_front(v.to_vec());
     }
