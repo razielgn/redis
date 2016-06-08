@@ -5,7 +5,6 @@ use redis::commands::{Bytes, Command, IntRange};
 use std::borrow::Cow;
 use std::collections::{HashMap, LinkedList};
 use std::default::Default;
-use std::iter::FromIterator;
 use std::ops::Range;
 
 #[derive(Debug)]
@@ -259,9 +258,8 @@ impl<'a> Database {
 
     fn lpush(&mut self, key: Bytes<'a>, values: Vec<Bytes<'a>>) -> CommandResult {
         if !self.memory.contains_key(key) {
-            let list = LinkedList::from_iter(
-                values.iter().map(|value| value.to_vec())
-            );
+            let mut list = LinkedList::new();
+            push_to_list(&mut list, &values);
 
             self.insert(key, Value::List(list));
             return Ok(CommandReturn::Size(values.len()));
@@ -270,7 +268,7 @@ impl<'a> Database {
         let value = self.memory.get_mut(key).unwrap();
 
         if let Value::List(ref mut list) = *value {
-            list.extend(values.into_iter().map(|value| value.to_vec()));
+            push_to_list(list, &values);
             Ok(CommandReturn::Size(list.len()))
         } else {
             Err(CommandError::WrongType)
@@ -387,6 +385,12 @@ fn count_on_bits(slice: &[u8], range: Option<IntRange>) -> usize {
                 }),
         None =>
             slice.iter().fold(0, folder),
+    }
+}
+
+fn push_to_list(list: &mut LinkedList<Vec<u8>>, values: &Vec<Bytes>) {
+    for v in values {
+        list.push_front(v.to_vec());
     }
 }
 
@@ -871,28 +875,39 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn lpush(values: Vec<Vec<u8>>) {
+    #[test]
+    fn lpush() {
         let mut db = Database::new();
 
         assert_eq!(
-            Ok(CommandReturn::Size(values.len())),
+            Ok(CommandReturn::Size(2)),
             db.apply(Command::LPush {
                 key: b"foo",
-                values: values.iter()
-                    .map(Vec::as_slice)
-                    .collect(),
+                values: vec![b"0", b"1"],
             })
         );
 
         assert_eq!(
-            Ok(CommandReturn::Size(values.len() * 2)),
+            Ok(CommandReturn::Size(3)),
             db.apply(Command::LPush {
                 key: b"foo",
-                values: values.iter()
-                    .map(Vec::as_slice)
-                    .collect(),
+                values: vec![b"2"],
             })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"2"))),
+            db.apply(Command::LIndex { key: b"foo", index: 0 })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"1"))),
+            db.apply(Command::LIndex { key: b"foo", index: 1 })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"0"))),
+            db.apply(Command::LIndex { key: b"foo", index: 2 })
         );
     }
 
@@ -990,7 +1005,7 @@ mod test {
 
         db.apply(Command::LPush {
             key: b"foo",
-            values: vec![b"a", b"b", b"c"],
+            values: vec![b"c", b"b", b"a"],
         }).unwrap();
 
         let table = vec![
@@ -1036,7 +1051,7 @@ mod test {
         }).unwrap();
 
         assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(b"a"))),
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"c"))),
             db.apply(Command::LPop { key: b"foo" })
         );
 
@@ -1046,7 +1061,7 @@ mod test {
         );
 
         assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(b"c"))),
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"a"))),
             db.apply(Command::LPop { key: b"foo" })
         );
 
