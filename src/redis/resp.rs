@@ -63,10 +63,15 @@ fn encode_error<T: Write>(err: &CommandError, w: &mut T) -> io::Result<()> {
             try!(write!(w, "ERR no such key")),
         CommandError::WrongType =>
             try!(write!(w, "WRONGTYPE Operation against a key holding the wrong kind of value")),
-        CommandError::UnknownCommand(cmd) => {
+        CommandError::UnknownCommand(ref cmd) => {
             try!(write!(w, "ERR unknown command '"));
             try!(w.write_all(cmd));
             try!(write!(w, "'"));
+        }
+        CommandError::BadCommandAryth(ref cmd) => {
+            try!(write!(w, "ERR wrong number of arguments for '"));
+            try!(w.write_all(cmd));
+            try!(write!(w, "' command"));
         }
         CommandError::NotAnInteger =>
             try!(write!(w, "ERR value is not an integer or out of range")),
@@ -329,8 +334,16 @@ mod test {
         #[test]
         fn unknown_command() {
             encodes_to(
-                Err(CommandError::UnknownCommand(b"asd")),
+                Err(CommandError::UnknownCommand(b"asd".to_vec())),
                 "-ERR unknown command 'asd'\r\n"
+            );
+        }
+
+        #[test]
+        fn bad_command_aryth() {
+            encodes_to(
+                Err(CommandError::BadCommandAryth(b"asd".to_vec())),
+                "-ERR wrong number of arguments for 'asd' command\r\n"
             );
         }
 

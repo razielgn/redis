@@ -15,8 +15,9 @@ enum Value {
 }
 
 #[derive(Eq, PartialEq, Debug)]
-pub enum CommandError<'a> {
-    UnknownCommand(Bytes<'a>),
+pub enum CommandError {
+    UnknownCommand(Vec<u8>),
+    BadCommandAryth(Vec<u8>),
     NoSuchKey,
     NotAnInteger,
     IntegerOverflow,
@@ -41,7 +42,7 @@ pub enum CommandReturn<'a> {
     Array(Vec<CommandReturn<'a>>),
 }
 
-pub type CommandResult<'a> = Result<CommandReturn<'a>, CommandError<'a>>;
+pub type CommandResult<'a> = Result<CommandReturn<'a>, CommandError>;
 
 #[derive(Default, Debug)]
 pub struct Database {
