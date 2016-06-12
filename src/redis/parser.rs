@@ -9,7 +9,7 @@ fn not_multispace(c: u8) -> bool {
     }
 }
 
-named!(integer<i64>,
+named!(pub integer<i64>,
     chain!(
         sign: one_of!("-+")? ~
         digits: map_res!(
