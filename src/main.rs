@@ -12,5 +12,5 @@ extern crate quickcheck;
 mod redis;
 
 fn main() {
-    redis::repl::repl();
+    redis::tcp::listen();
 }
