@@ -97,19 +97,19 @@ impl<'a> Database {
         }
     }
 
-    fn exists(&self, keys: Vec<Bytes<'a>>) -> CommandResult {
-        let sum = keys.into_iter()
-            .filter(|key| self.memory.contains_key(*key))
+    fn exists(&self, keys: &[Bytes<'a>]) -> CommandResult {
+        let sum = keys.iter()
+            .filter(|key| self.memory.contains_key(**key))
             .count();
 
         Ok(CommandReturn::Size(sum))
     }
 
-    fn del(&mut self, keys: Vec<Bytes<'a>>) -> CommandResult {
-        let sum = keys.into_iter()
+    fn del(&mut self, keys: &[Bytes<'a>]) -> CommandResult {
+        let sum = keys.iter()
             .filter(|key| {
                 self.memory
-                    .remove(*key)
+                    .remove(**key)
                     .map_or(false, |_| true)
             })
             .count();
@@ -257,7 +257,7 @@ impl<'a> Database {
         }
     }
 
-    fn lpush(&mut self, key: Bytes<'a>, values: Vec<Bytes<'a>>) -> CommandResult {
+    fn lpush(&mut self, key: Bytes<'a>, values: &[Bytes<'a>]) -> CommandResult {
         if !self.memory.contains_key(key) {
             let mut list = LinkedList::new();
             push_to_list(&mut list, &values);
@@ -426,7 +426,7 @@ mod test {
     fn get_wrong_type() {
         let mut db = Database::new();
 
-        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+        db.apply(Command::LPush { key: b"foo", values: &[b"a"] }).unwrap();
 
         assert_eq!(
             Err(CommandError::WrongType),
@@ -440,7 +440,7 @@ mod test {
 
         assert_eq!(
             Ok(CommandReturn::Size(0)),
-            db.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
+            db.apply(Command::Exists { keys: &[b"foo", b"bar", b"baz"] })
         );
 
         db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
@@ -448,7 +448,7 @@ mod test {
 
         assert_eq!(
             Ok(CommandReturn::Size(2)),
-            db.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
+            db.apply(Command::Exists { keys: &[b"foo", b"bar", b"baz"] })
         );
     }
 
@@ -458,7 +458,7 @@ mod test {
 
         assert_eq!(
             Ok(CommandReturn::Size(0)),
-            db.apply(Command::Del { keys: vec!(b"foo", b"bar", b"baz") })
+            db.apply(Command::Del { keys: &[b"foo", b"bar", b"baz"] })
         );
 
         db.apply(Command::Set { key: b"foo", value: b"foo" }).unwrap();
@@ -467,12 +467,12 @@ mod test {
 
         assert_eq!(
             Ok(CommandReturn::Size(2)),
-            db.apply(Command::Del { keys: vec!(b"foo", b"baz") })
+            db.apply(Command::Del { keys: &[b"foo", b"baz"] })
         );
 
         assert_eq!(
             Ok(CommandReturn::Size(1)),
-            db.apply(Command::Exists { keys: vec!(b"foo", b"bar", b"baz") })
+            db.apply(Command::Exists { keys: &[b"foo", b"bar", b"baz"] })
         );
     }
 
@@ -525,7 +525,7 @@ mod test {
     fn strlen_wrong_type() {
         let mut db = Database::new();
 
-        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+        db.apply(Command::LPush { key: b"foo", values: &[b"a"] }).unwrap();
 
         assert_eq!(
             Err(CommandError::WrongType),
@@ -695,7 +695,7 @@ mod test {
     fn append_wrong_type() {
         let mut db = Database::new();
 
-        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+        db.apply(Command::LPush { key: b"foo", values: &[b"a"] }).unwrap();
 
         assert_eq!(
             Err(CommandError::WrongType),
@@ -709,7 +709,7 @@ mod test {
 
         db.apply(Command::Set { key: b"foo", value: b"bar" }).unwrap();
         db.apply(Command::Set { key: b"bar", value: b"1" }).unwrap();
-        db.apply(Command::LPush { key: b"kak", values: vec![b"1"] }).unwrap();
+        db.apply(Command::LPush { key: b"kak", values: &[b"1"] }).unwrap();
 
         assert_eq!(
             Ok(CommandReturn::Type(Type::String)),
@@ -794,7 +794,7 @@ mod test {
     fn bitcount_wrong_type() {
         let mut db = Database::new();
 
-        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+        db.apply(Command::LPush { key: b"foo", values: &[b"a"] }).unwrap();
 
         assert_eq!(
             Err(CommandError::WrongType),
@@ -841,7 +841,7 @@ mod test {
     fn get_range_wrong_type() {
         let mut db = Database::new();
 
-        db.apply(Command::LPush { key: b"foo", values: vec![b"a"] }).unwrap();
+        db.apply(Command::LPush { key: b"foo", values: &[b"a"] }).unwrap();
 
         assert_eq!(
             Err(CommandError::WrongType),
@@ -884,7 +884,7 @@ mod test {
             Ok(CommandReturn::Size(2)),
             db.apply(Command::LPush {
                 key: b"foo",
-                values: vec![b"0", b"1"],
+                values: &[b"0", b"1"],
             })
         );
 
@@ -892,7 +892,7 @@ mod test {
             Ok(CommandReturn::Size(3)),
             db.apply(Command::LPush {
                 key: b"foo",
-                values: vec![b"2"],
+                values: &[b"2"],
             })
         );
 
@@ -920,7 +920,7 @@ mod test {
 
         assert_eq!(
             Err(CommandError::WrongType),
-            db.apply(Command::LPush { key: b"foo", values: vec![b"bar"] })
+            db.apply(Command::LPush { key: b"foo", values: &[b"bar"] })
         );
     }
 
@@ -928,12 +928,14 @@ mod test {
     fn llen(values: Vec<Vec<u8>>) {
         let mut db = Database::new();
 
+        let borrowed_values = values.iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<&[u8]>>();
+
         db.apply(
             Command::LPush {
                 key: b"foo",
-                values: values.iter()
-                    .map(Vec::as_slice)
-                    .collect(),
+                values: borrowed_values.as_slice(),
             }
         ).unwrap();
 
@@ -1006,7 +1008,7 @@ mod test {
 
         db.apply(Command::LPush {
             key: b"foo",
-            values: vec![b"c", b"b", b"a"],
+            values: &[b"c", b"b", b"a"],
         }).unwrap();
 
         let table = vec![
@@ -1048,7 +1050,7 @@ mod test {
 
         db.apply(Command::LPush {
             key: b"foo",
-            values: vec![b"a", b"b", b"c"],
+            values: &[b"a", b"b", b"c"],
         }).unwrap();
 
         assert_eq!(

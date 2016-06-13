@@ -1,7 +1,6 @@
 use nom::{crlf, digit};
 use redis::commands::Bytes;
 use redis::database::{CommandError, CommandReturn, CommandResult, Type};
-use redis::parser::integer;
 use std::io::{self, Write};
 use std::str::{self, FromStr};
 
@@ -81,6 +80,20 @@ fn encode_error<T: Write>(err: &CommandError, w: &mut T) -> io::Result<()> {
 
     write!(w, "\r\n")
 }
+
+named!(integer<i64>,
+    chain!(
+        sign: one_of!("-+")? ~
+        digits: map_res!(
+            map_res!(digit, str::from_utf8),
+            |s| {
+                let sign = sign.unwrap_or('+');
+                i64::from_str_radix(&format!("{}{}", sign, s), 10)
+            }
+        ),
+        || { digits }
+    )
+);
 
 named!(size<usize>,
     map_res!(
