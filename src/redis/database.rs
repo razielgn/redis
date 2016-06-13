@@ -37,6 +37,7 @@ pub enum CommandReturn<'a> {
     Nil,
     Integer(i64),
     Size(usize),
+    SimpleString(&'static [u8]),
     BulkString(Cow<'a, [u8]>),
     Type(Type),
     Array(Vec<CommandReturn<'a>>),

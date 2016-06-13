@@ -25,6 +25,11 @@ fn encode_return<T: Write>(ret: &CommandReturn, w: &mut T) -> io::Result<()> {
     match *ret {
         CommandReturn::Ok =>
             try!(write!(w, "+OK\r\n")),
+        CommandReturn::SimpleString(ref s) => {
+            try!(write!(w, "+"));
+            try!(w.write_all(s));
+            try!(write!(w, "\r\n"));
+        }
         CommandReturn::Nil =>
             try!(write!(w, "$-1\r\n")),
         CommandReturn::BulkString(ref s) => {
@@ -266,6 +271,11 @@ mod test {
         #[test]
         fn ok() {
             encodes_to(Ok(CommandReturn::Ok), "+OK\r\n");
+        }
+
+        #[test]
+        fn simple_string() {
+            encodes_to(Ok(CommandReturn::SimpleString(b"PONG")), "+PONG\r\n");
         }
 
         #[test]
