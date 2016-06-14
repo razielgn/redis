@@ -53,24 +53,27 @@ pub struct Database {
 impl<'a> Database {
     pub fn new() -> Self { Self::default() }
 
-    pub fn apply(&mut self, command: Command) -> CommandResult {
+    pub fn apply(&'a mut self, command: Command<'a>) -> CommandResult<'a> {
+        use redis::commands::Command::*;
+
         match command {
-            Command::Append { key, value } => self.append(key, value),
-            Command::BitCount { key, range } => self.bit_count(key, range),
-            Command::DecrBy { key, by } => self.incr_by(key, -by),
-            Command::Del { keys } => self.del(keys),
-            Command::Exists { keys } => self.exists(keys),
-            Command::Get { key } => self.get(key),
-            Command::GetRange { key, range } => self.get_range(key, range),
-            Command::IncrBy { key, by } => self.incr_by(key, by),
-            Command::LIndex { key, index } => self.lindex(key, index),
-            Command::LLen { key } => self.llen(key),
-            Command::LPop { key } => self.lpop(key),
-            Command::LPush { key, values } => self.lpush(key, values),
-            Command::Rename { key, new_key } => self.rename(key, new_key),
-            Command::Set { key, value } => self.set(key, value),
-            Command::Strlen { key } => self.strlen(key),
-            Command::Type { key } => self.type_(key),
+            Append { key, value }   => self.append(key, value),
+            BitCount { key, range } => self.bit_count(key, range),
+            DecrBy { key, by }      => self.incr_by(key, -by),
+            Del { keys }            => self.del(keys),
+            Exists { keys }         => self.exists(keys),
+            Get { key }             => self.get(key),
+            GetRange { key, range } => self.get_range(key, range),
+            IncrBy { key, by }      => self.incr_by(key, by),
+            LIndex { key, index }   => self.lindex(key, index),
+            LLen { key }            => self.llen(key),
+            LPop { key }            => self.lpop(key),
+            LPush { key, values }   => self.lpush(key, values),
+            Ping { arg }            => self.ping(arg),
+            Rename { key, new_key } => self.rename(key, new_key),
+            Set { key, value }      => self.set(key, value),
+            Strlen { key }          => self.strlen(key),
+            Type { key }            => self.type_(key),
         }
     }
 
@@ -319,6 +322,13 @@ impl<'a> Database {
                 Err(CommandError::WrongType),
             None =>
                 Ok(CommandReturn::Nil),
+        }
+    }
+
+    fn ping<'b>(&self, arg: Option<Bytes<'b>>) -> CommandResult<'b> {
+        match arg {
+            Some(arg) => Ok(CommandReturn::BulkString(Cow::Borrowed(arg))),
+            None      => Ok(CommandReturn::SimpleString(b"PONG")),
         }
     }
 }
@@ -1084,6 +1094,21 @@ mod test {
         assert_eq!(
             Err(CommandError::WrongType),
             db.apply(Command::LPop { key: b"foo" })
+        );
+    }
+
+    #[test]
+    fn ping() {
+        let mut db = Database::new();
+
+        assert_eq!(
+            Ok(CommandReturn::SimpleString(b"PONG")),
+            db.apply(Command::Ping { arg: None })
+        );
+
+        assert_eq!(
+            Ok(CommandReturn::BulkString(Cow::Borrowed(b"PONG"))),
+            db.apply(Command::Ping { arg: Some(b"PONG") })
         );
     }
 

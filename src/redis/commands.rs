@@ -20,6 +20,7 @@ pub enum Command<'a> {
     LLen { key: Bytes<'a> },
     LPop { key: Bytes<'a> },
     LPush { key: Bytes<'a>, values: &'a [Bytes<'a>] },
+    Ping { arg: Option<Bytes<'a>> },
     Rename { key: Bytes<'a>, new_key: Bytes<'a> },
     Set { key: Bytes<'a>, value: Bytes<'a> },
     Strlen { key: Bytes<'a> },
@@ -117,6 +118,16 @@ macro_rules! key_values {
     };
 }
 
+macro_rules! value_opt {
+    ( $cmd:ident, $slice:ident, $f:expr ) => {
+        match &$slice[1..] {
+            &[]      => Ok($f(None)),
+            &[value] => Ok($f(Some(value))),
+            _        => Err(BadCommandAryth($cmd)),
+        }
+    };
+}
+
 impl<'a> Command<'a> {
     pub fn from_slice(s: &'a [Bytes<'a>]) -> Result<Command<'a>, CommandError> {
         use redis::database::CommandError::*;
@@ -147,6 +158,7 @@ impl<'a> Command<'a> {
             b"bitcount" => key_range_opt!(cmd, s, |k, r| BitCount { key: k, range: r }),
             b"getrange" => key_range!(cmd, s, |k, r| GetRange { key: k, range: r }),
             b"lpush"    => key_values!(cmd, s, |k, vs| LPush { key: k, values: vs }),
+            b"ping"     => value_opt!(cmd, s, |value| Ping { arg: value }),
             _           => Err(UnknownCommand(s[0].to_vec())),
         }
     }
@@ -333,6 +345,19 @@ mod test {
         assert_eq!(
             Ok(LPush { key: b"foo", values: &[b"a", b"b", b"c"] }),
             Command::from_slice(&[b"lpush", b"foo", b"a", b"b", b"c"])
+        );
+    }
+
+    #[test]
+    fn ping() {
+        assert_eq!(
+            Ok(Ping { arg: None }),
+            Command::from_slice(&[b"ping"])
+        );
+
+        assert_eq!(
+            Ok(Ping { arg: Some(b"foo") }),
+            Command::from_slice(&[b"ping", b"foo"])
         );
     }
 }
