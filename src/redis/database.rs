@@ -264,7 +264,7 @@ impl<'a> Database {
     fn lpush(&mut self, key: Bytes<'a>, values: &[Bytes<'a>]) -> CommandResult {
         if !self.memory.contains_key(key) {
             let mut list = LinkedList::new();
-            push_to_list(&mut list, &values);
+            push_to_list(&mut list, values);
 
             self.insert(key, Value::List(list));
             return Ok(CommandReturn::Size(values.len()));
@@ -273,7 +273,7 @@ impl<'a> Database {
         let value = self.memory.get_mut(key).unwrap();
 
         if let Value::List(ref mut list) = *value {
-            push_to_list(list, &values);
+            push_to_list(list, values);
             Ok(CommandReturn::Size(list.len()))
         } else {
             Err(CommandError::WrongType)

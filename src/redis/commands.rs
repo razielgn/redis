@@ -35,50 +35,51 @@ fn slice_to_i64(s: Bytes) -> Option<i64> {
 
 macro_rules! key_value {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key, value] => Ok($f(key, value)),
-            _             => Err(BadCommandAryth($cmd)),
+        if let [key, value] = $slice[1..] {
+            Ok($f(key, value))
+        } else {
+            Err(BadCommandAryth($cmd))
         }
     };
 }
 
 macro_rules! key_int {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key, value] =>
-                slice_to_i64(value)
-                    .ok_or(NotAnInteger)
-                    .map(|i| $f(key, i)),
-            _ =>
-                Err(BadCommandAryth($cmd)),
+        if let [key, value] = $slice[1..] {
+            slice_to_i64(value)
+                .ok_or(NotAnInteger)
+                .map(|i| $f(key, i))
+        } else {
+            Err(BadCommandAryth($cmd))
         }
     };
 }
 
 macro_rules! string {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key] => Ok($f(key)),
-            _      => Err(BadCommandAryth($cmd)),
+        if let [key] = $slice[1..] {
+            Ok($f(key))
+        } else {
+            Err(BadCommandAryth($cmd))
         }
     };
 }
 
 macro_rules! keys {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[]   => Err(BadCommandAryth($cmd)),
-            keys  => Ok($f(keys))
+        match $slice[1..] {
+            []        => Err(BadCommandAryth($cmd)),
+            ref keys  => Ok($f(keys))
         }
     };
 }
 
 macro_rules! key_range_opt {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key] =>
+        match $slice[1..] {
+            [key] =>
                 Ok($f(key, None)),
-            &[key, from, to] => {
+            [key, from, to] => {
                 match (slice_to_i64(from), slice_to_i64(to)) {
                     (Some(from), Some(to)) =>
                         Ok($f(key, Some(from..to))),
@@ -94,36 +95,35 @@ macro_rules! key_range_opt {
 
 macro_rules! key_range {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key, from, to] => {
-                match (slice_to_i64(from), slice_to_i64(to)) {
-                    (Some(from), Some(to)) =>
-                        Ok($f(key, from..to)),
-                    (None, _) | (_, None) =>
-                        Err(NotAnInteger),
-                }
+        if let [key, from, to] = $slice[1..] {
+            match (slice_to_i64(from), slice_to_i64(to)) {
+                (Some(from), Some(to)) =>
+                    Ok($f(key, from..to)),
+                (None, _) | (_, None) =>
+                    Err(NotAnInteger),
             }
-            _ =>
-                Err(BadCommandAryth($cmd)),
+        } else {
+            Err(BadCommandAryth($cmd))
         }
     };
 }
 
 macro_rules! key_values {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[key, ref values..] => Ok($f(key, values)),
-            _                    => Err(BadCommandAryth($cmd)),
+        if let [key, ref values..] = $slice[1..] {
+            Ok($f(key, values))
+        } else {
+            Err(BadCommandAryth($cmd))
         }
     };
 }
 
 macro_rules! value_opt {
     ( $cmd:ident, $slice:ident, $f:expr ) => {
-        match &$slice[1..] {
-            &[]      => Ok($f(None)),
-            &[value] => Ok($f(Some(value))),
-            _        => Err(BadCommandAryth($cmd)),
+        match $slice[1..] {
+            []      => Ok($f(None)),
+            [value] => Ok($f(Some(value))),
+            _       => Err(BadCommandAryth($cmd)),
         }
     };
 }
