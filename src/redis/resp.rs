@@ -151,13 +151,26 @@ named!(pub decode<Value>,
     )
 );
 
+named!(array_of_strings<Vec<Bytes> >,
+    chain!(
+        size: size ~
+        crlf ~
+        values: count!(preceded!(tag!("$"), bulk_string), size),
+        || values
+    )
+);
+
+named!(pub decode_string_array<Vec<Bytes> >,
+    preceded!(tag!("*"), array_of_strings)
+);
+
 #[cfg(test)]
 mod test {
     mod decode {
         use nom::IResult;
         use quickcheck::TestResult;
         use std::io::Write;
-        use super::super::{decode, Value};
+        use super::super::{decode, decode_string_array, Value};
 
         #[quickcheck]
         fn simple_strings(s: String) -> TestResult {
@@ -246,6 +259,14 @@ mod test {
                         Value::Integer(1),
                     ]),
                 ])
+            );
+        }
+
+        #[test]
+        fn _array_of_strings() {
+            assert_eq!(
+                IResult::Done(&b""[..], vec![&b"foobar"[..], &b"bar"[..]]),
+                decode_string_array(b"*2\r\n$6\r\nfoobar\r\n$3\r\nbar\r\n")
             );
         }
 

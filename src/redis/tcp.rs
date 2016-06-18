@@ -1,9 +1,10 @@
 use nom::IResult;
-use redis::commands::{Command, Bytes};
+use redis::commands::Command;
 use redis::database::Database;
-use redis::resp::{Value, decode, encode};
+use redis::line::tokenize;
+use redis::resp::{decode_string_array, encode};
 use std::io::{Read};
-use std::net::{TcpListener, TcpStream, Shutdown};
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -34,40 +35,30 @@ fn handle_client(mut stream: TcpStream, database: Arc<Mutex<Database>>) {
 
         let size = stream.read(&mut buffer[..]).unwrap();
 
-        match decode(&buffer[0..size]) {
-            IResult::Done(_, Value::Array(array)) => {
-                let a: Vec<Bytes> = array.into_iter()
-                    .filter_map(|value| {
-                        if let Value::BulkString(s) = value {
-                            Some(s)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+        let tokenized = match buffer.first() {
+            Some(&b'*') =>
+                match decode_string_array(&buffer[0..size]) {
+                    IResult::Done(_, tokenized) => tokenized,
+                    _ => break
+                },
+            Some(_) =>
+                match tokenize(&buffer[0..size]) {
+                    IResult::Done(_, tokenized) => tokenized,
+                    _ => break
+                },
+            _ =>
+                break
+        };
 
-                match Command::from_slice(&a) {
-                    Ok(cmd) => {
-                        let mut database = database.lock().unwrap();
-                        let res = database.apply(cmd);
-                        encode(&res, &mut stream).unwrap();
-                    }
-                    Err(err) => {
-                        encode(&Err(err), &mut stream).unwrap();
-                    }
-                };
+        match Command::from_slice(&tokenized) {
+            Ok(command) => {
+                let mut database = database.lock().unwrap();
+                let res = database.apply(command);
+                encode(&res, &mut stream).unwrap();
             }
-            IResult::Done(_, _) => {
-                break;
-            }
-            IResult::Error(_) => {
-                break;
-            }
-            IResult::Incomplete(_) => {
-                break;
+            Err(err) => {
+                encode(&Err(err), &mut stream).unwrap();
             }
         }
     }
-
-    stream.shutdown(Shutdown::Both).unwrap();
 }
