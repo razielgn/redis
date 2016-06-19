@@ -9,8 +9,10 @@ extern crate nom;
 #[cfg(test)]
 extern crate quickcheck;
 
+extern crate mioco;
+
 mod redis;
 
 fn main() {
-    redis::tcp::listen();
+    redis::tcp::listen_async();
 }

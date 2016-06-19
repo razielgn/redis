@@ -1,39 +1,37 @@
+use mioco::tcp::{TcpListener, TcpStream};
+use mioco;
 use nom::IResult;
 use redis::commands::Command;
 use redis::database::Database;
 use redis::line::tokenize;
 use redis::resp::{decode_string_array, encode};
-use std::io::{Read};
-use std::net::{TcpListener, TcpStream};
+use std::io::{self, Read};
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
-pub fn listen() {
-    let address = "127.0.0.1:9876";
-    let listener = TcpListener::bind(address).unwrap();
+pub fn listen_async() {
+    mioco::start(|| -> io::Result<()> {
+        let address = SocketAddr::from_str("127.0.0.1:9876").unwrap();
+        let listener = try!(TcpListener::bind(&address));
+        let database = Arc::new(Mutex::new(Database::new()));
 
-    println!("Listening on {}", address);
+        println!("Starting Redis on {:?}", try!(listener.local_addr()));
 
-    let database = Arc::new(Mutex::new(Database::new()));
+        loop {
+            let conn = try!(listener.accept());
+            let database = database.clone();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                let database = database.clone();
-                thread::spawn(move || handle_client(stream, database));
-            }
-            Err(e) => {
-                println!("Error connecting: {}", e);
-            }
+            mioco::spawn(move || handle_client(conn, database));
         }
-    }
+    }).unwrap().unwrap();
 }
 
-fn handle_client(mut stream: TcpStream, database: Arc<Mutex<Database>>) {
-    loop {
-        let mut buffer = [0; 1024];
+fn handle_client(mut stream: TcpStream, database: Arc<Mutex<Database>>) -> io::Result<()> {
+    let mut buffer = [0; 1024 * 16];
 
-        let size = stream.read(&mut buffer[..]).unwrap();
+    loop {
+        let size = try!(stream.read(&mut buffer[..]));
 
         let tokenized = match buffer.first() {
             Some(&b'*') =>
@@ -54,11 +52,13 @@ fn handle_client(mut stream: TcpStream, database: Arc<Mutex<Database>>) {
             Ok(command) => {
                 let mut database = database.lock().unwrap();
                 let res = database.apply(command);
-                encode(&res, &mut stream).unwrap();
+                try!(encode(&res, &mut stream));
             }
             Err(err) => {
-                encode(&Err(err), &mut stream).unwrap();
+                try!(encode(&Err(err), &mut stream));
             }
         }
     }
+
+    Ok(())
 }

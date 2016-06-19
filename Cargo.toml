@@ -5,6 +5,7 @@ authors = ["Federico Ravasio <ravasio.federico@gmail.com>"]
 
 [dependencies]
 nom = "1.2.3"
+mioco = "0.6.0"
 
 [dev-dependencies]
 quickcheck = "0.2.27"
