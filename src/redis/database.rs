@@ -487,49 +487,52 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn rename_non_existing(key: Vec<u8>, new_key: Vec<u8>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn rename_non_existing(key: Vec<u8>, new_key: Vec<u8>) -> () {
+            let mut db = Database::new();
 
-        assert_eq!(
-            Err(CommandError::NoSuchKey),
-            db.apply(Command::Rename { key: &key, new_key: &new_key })
-        );
-    }
-
-    #[quickcheck]
-    fn rename(key: Vec<u8>, new_key: Vec<u8>, value: Vec<u8>) {
-        let mut db = Database::new();
-        db.apply(Command::Set { key: &key, value: &value }).unwrap();
-
-        assert_eq!(
-            Ok(CommandReturn::Ok),
-            db.apply(Command::Rename { key: &key, new_key: &new_key })
-        );
-
-        if key != new_key {
             assert_eq!(
-                Ok(CommandReturn::Nil),
-                db.apply(Command::Get { key: &key })
+                Err(CommandError::NoSuchKey),
+                db.apply(Command::Rename { key: &key, new_key: &new_key })
             );
         }
-
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
-            db.apply(Command::Get { key: &new_key })
-        );
     }
 
-    #[quickcheck]
-    fn strlen(key: Vec<u8>, value: Vec<u8>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn rename(key: Vec<u8>, new_key: Vec<u8>, value: Vec<u8>) -> () {
+            let mut db = Database::new();
+            db.apply(Command::Set { key: &key, value: &value }).unwrap();
 
-        db.apply(Command::Set { key: &key, value: &value }).unwrap();
+            assert_eq!(
+                Ok(CommandReturn::Ok),
+                db.apply(Command::Rename { key: &key, new_key: &new_key })
+            );
 
-        assert_eq!(
-            Ok(CommandReturn::Size(value.len())),
-            db.apply(Command::Strlen { key: &key })
-        );
+            if key != new_key {
+                assert_eq!(
+                    Ok(CommandReturn::Nil),
+                    db.apply(Command::Get { key: &key })
+                );
+            }
+
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
+                db.apply(Command::Get { key: &new_key })
+            );
+        }
+    }
+
+    quickcheck! {
+        fn strlen(key: Vec<u8>, value: Vec<u8>) -> () {
+            let mut db = Database::new();
+
+            db.apply(Command::Set { key: &key, value: &value }).unwrap();
+
+            assert_eq!(
+                Ok(CommandReturn::Size(value.len())),
+                db.apply(Command::Strlen { key: &key })
+            );
+        }
     }
 
     #[test]
@@ -650,31 +653,34 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn append_str(mut value: Vec<u8>, mut append: Vec<u8>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn append_str(value: Vec<u8>, append: Vec<u8>) -> () {
+            let mut value = value;
+            let mut append = append;
+            let mut db = Database::new();
 
-        assert_eq!(
-            Ok(CommandReturn::Size(value.len())),
-            db.apply(Command::Append { key: b"foo", value: &value })
-        );
+            assert_eq!(
+                Ok(CommandReturn::Size(value.len())),
+                db.apply(Command::Append { key: b"foo", value: &value })
+            );
 
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
-            db.apply(Command::Get { key: b"foo" })
-        );
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
+                db.apply(Command::Get { key: b"foo" })
+            );
 
-        assert_eq!(
-            Ok(CommandReturn::Size(value.len() + append.len())),
-            db.apply(Command::Append { key: b"foo", value: &append })
-        );
+            assert_eq!(
+                Ok(CommandReturn::Size(value.len() + append.len())),
+                db.apply(Command::Append { key: b"foo", value: &append })
+            );
 
-        value.append(&mut append);
+            value.append(&mut append);
 
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
-            db.apply(Command::Get { key: b"foo" })
-        );
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(&value))),
+                db.apply(Command::Get { key: b"foo" })
+            );
+        }
     }
 
     #[test]
@@ -813,14 +819,15 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn get_range_missing(range: Range<i64>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn get_range_missing(range: Range<i64>) -> () {
+            let mut db = Database::new();
 
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
-            db.apply(Command::GetRange { key: b"foo", range: range })
-        );
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
+                db.apply(Command::GetRange { key: b"foo", range: range })
+            );
+        }
     }
 
     #[test]
@@ -860,31 +867,33 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn get_range_string_qc(value: Vec<u8>, range: Range<i64>) -> bool {
-        let mut db = Database::new();
+    quickcheck! {
+        fn get_range_string_qc(value: Vec<u8>, range: Range<i64>) -> bool {
+            let mut db = Database::new();
 
-        db.apply(Command::Set { key: b"foo", value: &value }).unwrap();
+            db.apply(Command::Set { key: b"foo", value: &value }).unwrap();
 
-        if let Ok(CommandReturn::BulkString(s)) =
-            db.apply(Command::GetRange { key: b"foo", range: range })
-        {
-            contains(&value, s.borrow())
-        } else {
-            false
+            if let Ok(CommandReturn::BulkString(s)) =
+                db.apply(Command::GetRange { key: b"foo", range: range })
+            {
+                contains(&value, s.borrow())
+            } else {
+                false
+            }
         }
     }
 
-    #[quickcheck]
-    fn get_range_empty_string(range: Range<i64>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn get_range_empty_string(range: Range<i64>) -> () {
+            let mut db = Database::new();
 
-        db.apply(Command::Set { key: b"foo", value: b"" }).unwrap();
+            db.apply(Command::Set { key: b"foo", value: b"" }).unwrap();
 
-        assert_eq!(
-            Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
-            db.apply(Command::GetRange { key: b"foo", range: range })
-        );
+            assert_eq!(
+                Ok(CommandReturn::BulkString(Cow::Borrowed(b""))),
+                db.apply(Command::GetRange { key: b"foo", range: range })
+            );
+        }
     }
 
     #[test]
@@ -935,25 +944,26 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn llen(values: Vec<Vec<u8>>) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn llen(values: Vec<Vec<u8>>) -> () {
+            let mut db = Database::new();
 
-        let borrowed_values = values.iter()
-            .map(Vec::as_slice)
-            .collect::<Vec<&[u8]>>();
+            let borrowed_values = values.iter()
+                .map(Vec::as_slice)
+                .collect::<Vec<&[u8]>>();
 
-        db.apply(
-            Command::LPush {
-                key: b"foo",
-                values: borrowed_values.as_slice(),
-            }
-        ).unwrap();
+            db.apply(
+                Command::LPush {
+                    key: b"foo",
+                    values: borrowed_values.as_slice(),
+                }
+            ).unwrap();
 
-        assert_eq!(
-            Ok(CommandReturn::Size(values.len())),
-            db.apply(Command::LLen { key: b"foo" })
-        );
+            assert_eq!(
+                Ok(CommandReturn::Size(values.len())),
+                db.apply(Command::LLen { key: b"foo" })
+            );
+        }
     }
 
     #[test]
@@ -1003,14 +1013,15 @@ mod test {
         }
     }
 
-    #[quickcheck]
-    fn lindex_missing_key(key: Vec<u8>, index: i64) {
-        let mut db = Database::new();
+    quickcheck! {
+        fn lindex_missing_key(key: Vec<u8>, index: i64) -> () {
+            let mut db = Database::new();
 
-        assert_eq!(
-            Ok(CommandReturn::Nil),
-            db.apply(Command::LIndex { key: &key, index: index })
-        );
+            assert_eq!(
+                Ok(CommandReturn::Nil),
+                db.apply(Command::LIndex { key: &key, index: index })
+            );
+        }
     }
 
     #[test]

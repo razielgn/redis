@@ -25,7 +25,7 @@ fn encode_return<T: Write>(ret: &CommandReturn, w: &mut T) -> io::Result<()> {
     match *ret {
         CommandReturn::Ok =>
             try!(write!(w, "+OK\r\n")),
-        CommandReturn::SimpleString(ref s) => {
+        CommandReturn::SimpleString(s) => {
             try!(write!(w, "+"));
             try!(w.write_all(s));
             try!(write!(w, "\r\n"));
@@ -172,18 +172,19 @@ mod test {
         use std::io::Write;
         use super::super::{decode, decode_string_array, Value};
 
-        #[quickcheck]
-        fn simple_strings(s: String) -> TestResult {
-            if s.is_empty() || s.contains('\n') || s.contains('\r') {
-                return TestResult::discard();
+        quickcheck! {
+            fn simple_strings(s: String) -> TestResult {
+                if s.is_empty() || s.contains('\n') || s.contains('\r') {
+                    return TestResult::discard();
+                }
+
+                parses_to(
+                    format!("+{}\r\n", s).as_bytes(),
+                    &Value::SimpleString(s.as_bytes())
+                );
+
+                TestResult::passed()
             }
-
-            parses_to(
-                format!("+{}\r\n", s).as_bytes(),
-                &Value::SimpleString(s.as_bytes())
-            );
-
-            TestResult::passed()
         }
 
         #[test]
@@ -193,26 +194,28 @@ mod test {
             doesnt_parse(b"+OK\rNOT\r\n");
         }
 
-        #[quickcheck]
-        fn integers(n: i64) {
-            parses_to(
-                &format!(":{}\r\n", n).as_bytes(),
-                &Value::Integer(n)
-            );
+        quickcheck! {
+            fn integers(n: i64) -> () {
+                parses_to(
+                    &format!(":{}\r\n", n).as_bytes(),
+                    &Value::Integer(n)
+                );
+            }
         }
 
-        #[quickcheck]
-        fn errors(s: String) -> TestResult {
-            if s.is_empty() || s.contains('\n') || s.contains('\r') {
-                return TestResult::discard();
+        quickcheck! {
+            fn errors(s: String) -> TestResult {
+                if s.is_empty() || s.contains('\n') || s.contains('\r') {
+                    return TestResult::discard();
+                }
+
+                parses_to(
+                    format!("-{}\r\n", s).as_bytes(),
+                    &Value::Error(s.as_bytes())
+                );
+
+                TestResult::passed()
             }
-
-            parses_to(
-                format!("-{}\r\n", s).as_bytes(),
-                &Value::Error(s.as_bytes())
-            );
-
-            TestResult::passed()
         }
 
         #[test]
@@ -222,14 +225,15 @@ mod test {
             doesnt_parse(b"-OK\rNOT\r\n");
         }
 
-        #[quickcheck]
-        fn bulk_string(s: Vec<u8>) {
-            let mut input = Vec::new();
-            write!(&mut input, "${}\r\n", s.len()).unwrap();
-            input.append(&mut s.clone());
-            write!(&mut input, "\r\n").unwrap();
+        quickcheck! {
+            fn bulk_string(s: Vec<u8>) -> () {
+                let mut input = Vec::new();
+                write!(&mut input, "${}\r\n", s.len()).unwrap();
+                input.append(&mut s.clone());
+                write!(&mut input, "\r\n").unwrap();
 
-            parses_to(&input, &Value::BulkString(&s));
+                parses_to(&input, &Value::BulkString(&s));
+            }
         }
 
         #[test]

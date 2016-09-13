@@ -244,34 +244,39 @@ mod test {
         );
     }
 
-    #[quickcheck]
-    fn incr_by(by: i64) {
-        let as_str = format!("{}", by);
+    quickcheck! {
+        fn incr_by(by: i64) -> bool {
+            let as_str = format!("{}", by);
 
-        assert_eq!(
-            Ok(IncrBy { key: b"foo", by: by }),
-            Command::from_slice(&[b"incrby", b"foo", as_str.as_bytes()])
-        );
+            assert_eq!(
+                Ok(IncrBy { key: b"foo", by: by }),
+                Command::from_slice(&[b"incrby", b"foo", as_str.as_bytes()])
+            );
+
+            true
+        }
     }
 
-    #[quickcheck]
-    fn decr_by(by: i64) {
-        let as_str = format!("{}", by);
+    quickcheck! {
+        fn decr_by(by: i64) -> () {
+            let as_str = format!("{}", by);
 
-        assert_eq!(
-            Ok(DecrBy { key: b"foo", by: by }),
-            Command::from_slice(&[b"decrby", b"foo", as_str.as_bytes()])
-        );
+            assert_eq!(
+                Ok(DecrBy { key: b"foo", by: by }),
+                Command::from_slice(&[b"decrby", b"foo", as_str.as_bytes()])
+            );
+        }
     }
 
-    #[quickcheck]
-    fn lindex(i: i64) {
-        let as_str = format!("{}", i);
+    quickcheck! {
+        fn lindex(i: i64) -> () {
+            let as_str = format!("{}", i);
 
-        assert_eq!(
-            Ok(LIndex { key: b"foo", index: i }),
-            Command::from_slice(&[b"lindex", b"foo", as_str.as_bytes()])
-        );
+            assert_eq!(
+                Ok(LIndex { key: b"foo", index: i }),
+                Command::from_slice(&[b"lindex", b"foo", as_str.as_bytes()])
+            );
+        }
     }
 
     #[test]

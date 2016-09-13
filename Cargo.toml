@@ -4,9 +4,8 @@ version = "0.1.0"
 authors = ["Federico Ravasio <ravasio.federico@gmail.com>"]
 
 [dependencies]
-nom = "1.2.4"
-mioco = "0.7.0"
+nom = "~1.2"
+mioco = "~0.8"
 
 [dev-dependencies]
-quickcheck = "0.3.1"
-quickcheck_macros = "0.2.28"
+quickcheck = "~0.3"
